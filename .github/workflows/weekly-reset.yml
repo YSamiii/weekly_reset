@@ -1,0 +1,84 @@
+name: Weekly Reset CI and backend deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check frontend and backend JavaScript
+        run: |
+          set -euo pipefail
+          test -s index.html
+          test -s manifest.webmanifest
+          node --check app.js
+          node --check sw.js
+          find vercel-backend/api -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Verify real video duration filtering
+        run: node --test tests/*.test.mjs
+
+  detect-backend-change:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: detect
+        shell: bash
+        run: |
+          if git diff --name-only HEAD^ HEAD | grep -q '^vercel-backend/'; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-vercel-backend:
+    needs: [verify, detect-backend-change]
+    if: >-
+      always() &&
+      needs.verify.result == 'success' &&
+      (
+        (github.event_name == 'push' && needs.detect-backend-change.outputs.changed == 'true') ||
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      )
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: vercel-backend
+    env:
+      VERCEL_ORG_ID: team_wAZWwdGVz7T5uTsRnXDIFh1L
+      VERCEL_PROJECT_ID: prj_LePZ9LxDfCkhz8eojraSak7YCNTj
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check deployment authentication
+        run: test -n "$VERCEL_TOKEN" || { echo 'Missing GitHub Actions secret VERCEL_TOKEN'; exit 1; }
+      - name: Install pinned Vercel CLI
+        run: npm install -g vercel@65.15.0
+      - name: Read existing Vercel project configuration
+        run: vercel pull --yes --environment=production
+      - name: Build backend
+        run: vercel build --prod
+      - name: Deploy existing backend project
+        run: vercel deploy --prebuilt --prod
+      - name: Check live API version
+        run: |
+          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_VERSION="$EXPECTED_VERSION" node --input-type=module -e "const r=await fetch('https://weekly-reset-youtube.vercel.app/api/health'); const d=await r.json(); if(!r.ok || !d.ok || d.service!=='weekly-reset-youtube' || d.version!==process.env.EXPECTED_VERSION) process.exit(1)"
