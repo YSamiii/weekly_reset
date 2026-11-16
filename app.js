@@ -3925,7 +3925,13 @@ const UI_ZH_EN = {
   '恢复优先 · 智能排课':'Recovery-first · Smart planning','今日':'Today','周计划':'Weekly Plan','视频库':'Video Library','待审核':'Review','训练记录':'History','设置':'Settings',
   '恢复状态优先':'Recovery comes first','计划服务于身体状态，而不是反过来。':'The plan adapts to your body, not the other way around.','今天做什么':'Today’s workout','安装到 iPad':'Install on iPad',
   '身体状态':'Body status','今天适合按计划训练吗？':'Does today’s plan fit how you feel?','本周概览':'This week','负荷与完成情况':'Load & completion','← 上一周':'← Previous','本周计划':'This Week','回到本周':'Back to this week','下一周 →':'Next →',
-  '周一至周日':'Monday to Sunday','计划与实际完成':'Plan & actual','周计划基础设置':'Weekly baseline settings','重新生成计划':'Regenerate plan','按日期调整强度':'Adjust by date','生理期安排':'Period plan','关闭模式':'Turn off','设置 / 修改':'Set / Edit',
+  '周一至周日':'Monday to Sunday',
+  '周一':'Mon','周二':'Tue','周三':'Wed','周四':'Thu','周五':'Fri','周六':'Sat','周日':'Sun',
+  '周末固定休息':'Fixed weekend rest','周末休息':'Weekend rest','工作日完成':'Weekdays completed',
+  '周六和周日不安排运动；周一再继续训练。':'No workouts on Saturday or Sunday. Resume on Monday.',
+  '周一至周五安排训练，周六、周日固定休息。':'Work out Monday through Friday; rest on weekends.',
+  '周六、周日固定休息。':'Saturday and Sunday are fixed rest days.',
+  '计划与实际完成':'Plan & actual','周计划基础设置':'Weekly baseline settings','重新生成计划':'Regenerate plan','按日期调整强度':'Adjust by date','生理期安排':'Period plan','关闭模式':'Turn off','设置 / 修改':'Set / Edit',
   '生理期模式严格排除腹肌／核心训练及臀桥、肩桥、髋抬高等骨盆倒置动作；候选不足时会安排休息。':'Period mode strictly excludes direct ab/core work and pelvic-elevation moves such as bridges; rest is used when no suitable video is available.',
   '本周频道偏好':'Channel preferences','这一周不想跟练哪些 YouTuber？':'Which YouTubers do you want to skip this week?','全部恢复':'Restore all','勾选的频道不会出现在所选周的自动排课或“替换”结果中。每一周分别保存。':'Selected channels are excluded from auto-planning and replacements for this week. Saved separately by week.','保存并重新生成':'Save & regenerate',
   '已批准内容':'Approved content','训练视频库':'Training video library','补充内置备用视频':'Add built-in backup videos','手动添加视频':'Add video manually','全部频道':'All channels','全部运动类型':'All exercise types','有氧':'Cardio','塑形':'Sculpt','力量训练':'Strength','瑜伽':'Yoga','拉伸':'Stretch','活动度 / 功能恢复':'Mobility / Functional recovery','冥想':'Meditation','待确认':'Needs review','全部体位':'All positions','垫上为主':'Mostly mat','混合':'Mixed','站立为主':'Mostly standing','全部偏好':'All preferences','♥ 喜欢':'♥ Like','不喜欢':'Dislike','未标记':'Unrated',
@@ -4090,7 +4096,7 @@ function renderHome() {
         </div>
       </div>
       <div class="hero-visual">${video.thumbnail ? `<img src="${escapeHtml(video.thumbnail)}" alt="${escapeHtml(video.title)}的视频封面">` : `<div class="hero-visual-placeholder">${escapeHtml(video.channel)}</div>`}</div>
-    </div>` : `<div class="hero-layout hero-rest-layout"><div class="hero-content"><p class="eyebrow hero-eyebrow">${isWeekendRestDay(today) ? '周末休息' : '今日恢复'}</p><h3>休息 / 自主恢复</h3><p class="hero-rationale">${escapeHtml(planItem?.rationale || '当前可用候选视频不足，已避免周内及本周／下周重复安排。')}</p><div class="hero-actions"><button class="secondary-btn community-btn" onclick="openCommunityClass('${today}')">${communityRecord ? '修改现场课' : 'Community Centre 课程打卡'}</button></div></div><div class="hero-rest-mark">REST</div></div>`;
+    </div>` : `<div class="hero-layout hero-rest-layout"><div class="hero-content"><p class="eyebrow hero-eyebrow">${isWeekendRestDay(today) ? '周末休息' : '今日恢复'}</p><h3>休息 / 自主恢复</h3><p class="hero-rationale">${escapeHtml(planItem?.rationale || '当前可用候选视频不足，已避免周内及本周／下周重复安排。')}</p><div class="hero-actions">${!isWeekendRestDay(today) || communityRecord ? `<button class="secondary-btn community-btn" onclick="openCommunityClass('${today}')">${communityRecord ? '修改现场课' : 'Community Centre 课程打卡'}</button>` : ''}</div></div><div class="hero-rest-mark">REST</div></div>`;
 
   const dailyEnergy = dailyEnergyForDate(today);
   const dailyBody = dailyBodyForDate(today);
@@ -4103,7 +4109,7 @@ function renderHome() {
     <div class="check-option"><div><strong>整周持续性限制</strong><div class="helper" style="margin:4px 0 0">${(state.assessment.pains || []).length ? state.assessment.pains.map(painName).join('、') : '无持续性不适'} · 基础负荷 ${state.assessment.load}/5</div></div><button onclick="document.getElementById('assessmentDialog').showModal()">周设置</button></div>
     <div class="check-option"><div><strong>生理期安排</strong><div class="helper" style="margin:4px 0 0">${state.menstrual.enabled ? menstrualStatusText() : '未启用；可按日期自动降低强度'}</div></div><button onclick="openMenstrualDialog()">${state.menstrual.enabled ? '修改' : '设置'}</button></div>
     ${isWeekendRestDay(today) ? '<div class="check-option"><div><strong>周末固定休息</strong><div class="helper" style="margin:4px 0 0">周六和周日不安排运动；周一再继续训练。</div></div></div>' : `<div class="check-option"><div><strong>今日手动调整</strong><div class="helper" style="margin:4px 0 0">只改今天，不改变后面几天</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button onclick="swapPlan('${planItem?.date}')">换轻一点</button>${dailyEnergy != null && dailyEnergy >= 4 ? `<button onclick="challengePlan('${planItem?.date}')">挑战一点</button>` : ''}</div></div>`}
-    <div class="check-option community-check-option"><div><strong>Community Centre 现场课</strong><div class="helper" style="margin:4px 0 0">普拉提或瑜伽课可直接覆盖今日视频</div></div><button onclick="openCommunityClass('${today}')">${communityRecord ? '修改' : '打卡'}</button></div>`;
+    ${!isWeekendRestDay(today) || communityRecord ? `<div class="check-option community-check-option"><div><strong>Community Centre 现场课</strong><div class="helper" style="margin:4px 0 0">普拉提或瑜伽课可直接覆盖今日视频</div></div><button onclick="openCommunityClass('${today}')">${communityRecord ? '修改' : '打卡'}</button></div>` : ''}`;
 
   const activeStatuses = new Set(['completed','partial','swapped']);
   const completed = new Set(state.feedback.filter(f => getWeekDates().includes(f.date) && !isWeekendRestDay(f.date) && activeStatuses.has(f.status)).map(f => f.date)).size;
