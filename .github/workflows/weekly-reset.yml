@@ -61,9 +61,6 @@ jobs:
       )
     runs-on: ubuntu-latest
     environment: production
-    defaults:
-      run:
-        working-directory: vercel-backend
     env:
       VERCEL_ORG_ID: team_wAZWwdGVz7T5uTsRnXDIFh1L
       VERCEL_PROJECT_ID: prj_LePZ9LxDfCkhz8eojraSak7YCNTj
@@ -76,6 +73,8 @@ jobs:
         run: test -n "$VERCEL_TOKEN" || { echo 'Missing GitHub Actions secret VERCEL_TOKEN'; exit 1; }
       - name: Install pinned Vercel CLI
         run: npm install -g vercel@65.15.0
+      - name: Validate monorepo backend layout
+        run: test -f vercel-backend/api/health.js && test -f vercel-backend/vercel.json
       - name: Read existing Vercel project configuration
         run: vercel pull --yes --environment=production
       - name: Build backend
@@ -84,5 +83,5 @@ jobs:
         run: vercel deploy --prebuilt --prod
       - name: Check live API version
         run: |
-          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_VERSION="$(node -p "require('./vercel-backend/package.json').version")"
           EXPECTED_VERSION="$EXPECTED_VERSION" node --input-type=module -e "const r=await fetch('https://weekly-reset-youtube.vercel.app/api/health'); const d=await r.json(); if(!r.ok || !d.ok || d.service!=='weekly-reset-youtube' || d.version!==process.env.EXPECTED_VERSION) process.exit(1)"
