@@ -3831,6 +3831,70 @@ function fillMissingPlanSlots(weekStart) {
   if (changed) { setPlanForWeek(weekStart, repaired); markPlanLocked(weekStart, 'retired-channel-repair'); }
   return changed;
 }
+// 3.8.2：旧版按周六建档。按每条计划的真实日期重新分组，不移动或删除任何打卡。
+function migrateLegacyWeekSchedule() {
+  if (state.weekScheduleStartDay === 'monday') return false;
+  const today = torontoDate();
+  const current = startOfPlanWeek(today);
+  const grouped = new Map();
+  const allPlans = [...Object.values(state.plansByWeek || {}), state.plan || []];
+  for (const plan of allPlans) {
+    if (!Array.isArray(plan)) continue;
+    for (const item of plan) {
+      if (!item?.date || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) continue;
+      const week = startOfPlanWeek(item.date);
+      if (!grouped.has(week)) grouped.set(week, new Map());
+      const byDate = grouped.get(week);
+      if (!byDate.has(item.date)) byDate.set(item.date, item);
+    }
+  }
+  const moveSaturdayWeek = week => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) return week;
+    return parseLocalDate(week).getDay() === 6 ? addDays(week, 2) : startOfPlanWeek(week);
+  };
+  const movedPreferences = {};
+  for (const [week, pref] of Object.entries(state.weekPreferencesByStart || {})) {
+    const target = moveSaturdayWeek(week);
+    if (!movedPreferences[target]) movedPreferences[target] = pref;
+  }
+  const movedMeta = {};
+  for (const [week, meta] of Object.entries(state.planMetaByWeek || {})) {
+    const target = moveSaturdayWeek(week);
+    if (!movedMeta[target]) movedMeta[target] = meta;
+  }
+  // 先登记历史日期，供新计划的轮换统计查询；这些历史条目原样保留。
+  const migratedPlans = {};
+  for (const [week, byDate] of grouped) {
+    if (week < current) migratedPlans[week] = getWeekDates(week).filter(date => byDate.has(date)).map(date => byDate.get(date));
+  }
+  state.plansByWeek = migratedPlans;
+  state.planMetaByWeek = movedMeta;
+  state.weekPreferencesByStart = movedPreferences;
+  // 当前及未来：保留已有工作日视频，填充缺失工作日，周末强制留空。
+  const futureWeeks = [...grouped.keys()].filter(week => week >= current).sort();
+  for (const week of futureWeeks) {
+    const oldDays = [...grouped.get(week).values()];
+    const plan = buildWeeklyPlan(week, {
+      existingPlan: oldDays, preserveExistingDates: true,
+      preserveBeforeDate: week === current ? today : ''
+    });
+    state.plansByWeek[week] = plan;
+    state.planMetaByWeek[week] = {
+      ...(state.planMetaByWeek[week] || {}),
+      locked:true, reason:'monday-weekend-rest-migration', updatedAt:new Date().toISOString()
+    };
+  }
+  state.weekScheduleStartDay = 'monday';
+  state.plan = state.plansByWeek[current] || [];
+  state.weekPreferences = {
+    weekStart:current,
+    excludedChannels:[...(state.weekPreferencesByStart[current]?.excludedChannels || [])]
+  };
+  selectedWeekStart = current;
+  saveState();
+  return true;
+}
+
 function repairRetiredChannelSlots() {
   state.videos = (state.videos || []).filter(video => !isRetiredChannelName(video.channel));
   state.settings.channels = (state.settings?.channels || []).filter(channel => !isRetiredChannelName(channel.name));
@@ -4947,6 +5011,8 @@ function importData(file) {
           return normalizeMenstrualSafety({ ...(seed || {}), ...video, ...(seed ? { title:seed.title,channel:seed.channel,url:seed.url,thumbnail:seed.thumbnail } : {}), verificationStatus:status, verifiedAt:seed?null:(video.verifiedAt||null), verifiedChannel:seed?'':(video.verifiedChannel||''), linkAuditStatus:seed?'curated':(video.linkAuditStatus||'manual'), linkAuditedAt:seed?null:(video.linkAuditedAt||null), originalChannel:video.originalChannel||'', originalTitle:video.originalTitle||'', verificationNote:/^本次未能核实/.test(String(video.verificationNote||''))?'':(video.verificationNote||''), autoPlanEligible:video.autoPlanEligible!==false, needsReview:!!video.needsReview&&status==='corrected' });
         });
       state = parsed;
+      state.weekScheduleStartDay = parsed.weekScheduleStartDay === 'monday' ? 'monday' : 'saturday';
+      migrateLegacyWeekSchedule();
       selectedWeekStart = startOfPlanWeek();
       repairRetiredChannelSlots();
       ensureCurrentAndNextPlans();
@@ -5248,6 +5314,7 @@ window.addEventListener('appinstalled',()=>showToast('已安装到主屏幕'));
 
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.error));}
 
+migrateLegacyWeekSchedule();
 repairRetiredChannelSlots();
 bindEvents();bindDisplaySettings();hydrateAssessmentDialog();hydrateMenstrualDialog();renderAll();applyAppearance();applyLocalization();updateInstallButtonForDevice();
 if (!state.settings.shareOnboardingSeen) {
