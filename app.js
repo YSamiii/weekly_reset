@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'weeklyResetApp_v1';
-const APP_DATA_VERSION = 42;
+const APP_DATA_VERSION = 42; // 周起始日迁移由 weekScheduleStartDay 独立标记，避免重置视频库
 const DEFAULT_YOUTUBE_BACKEND = 'https://weekly-reset-youtube.vercel.app/api';
 const RETIRED_SEED_VIDEO_IDS = new Set(["yrYUfRt7k60", "FlPWNSn0YHQ", "UxstRqRaIPs", "bkGSwCg0_O0", "3pgB6eqk_bI", "mzEbSFBgQGk", "A_sdIeOgPX0", "uqKLz3HRLJg", "BIdaEuLkAnM", "EYngvIvMvSo", "alt9hfrnsA4", "DqPMk-GhT6s", "jE-dDQdwRwc", "FFPDeaG_8Dg", "AE-GTSE9MBM", "sW4EUzrcnTs", "FrCPFm0nZ6U", "QQg6QQrPdJQ", "BzG5Af5HTfQ", "I5S7L4k0e9U", "-fkySqtdlxo", "JHWv-vgn_QY", "RIi72ZNqRCQ", "D3TC-tz3TeQ", "4pfCBO3BGvg", "_Rg7nToY1dg", "WoTKGyCM7Jk", "e5Ou7dskEGM", "BegW_l4IJFQ", "M7qogNry8t4", "-9Dfa3_CCvg", "k_ShNZ1ksYs", "H5-LhJ1I-hQ", "DwhVA8y7_l0", "V7NLxB373Ro", "BwStwvbizIM", "imWc_27U9w8", "60T1eRQzlGw", "6RIbWni5JVk", "2eA2Koq6pTI", "5P6PlsGfcQU", "JdSHPSSMVq4", "Agu4EnLxAGM", "aZYDtjc5koQ", "UMGkQ9FmbGg", "32DsAJUru8E", "47EwctVwir4", "zYInbggfukg"]);
 const TZ = 'America/Toronto';
@@ -2746,6 +2746,7 @@ const samplePending = [];
 function defaultState() {
   return {
     version: APP_DATA_VERSION,
+    weekScheduleStartDay: 'monday',
     videos: structuredClone(sampleVideos),
     pending: structuredClone(samplePending),
     assessment: {
@@ -2908,6 +2909,7 @@ function loadState() {
     const merged = {
       ...defaults,
       ...parsed,
+      weekScheduleStartDay: parsed.weekScheduleStartDay === 'monday' ? 'monday' : 'saturday',
       menstrual: { ...defaults.menstrual, ...(parsed.menstrual || {}) },
       plansByWeek: { ...(parsed.plansByWeek || {}) },
       planMetaByWeek: { ...(parsed.planMetaByWeek || {}) },
@@ -3091,11 +3093,24 @@ function formatDate(iso, options = {}) {
 function startOfPlanWeek(dateIso = torontoDate()) {
   const d = parseLocalDate(dateIso);
   const day = d.getDay();
-  const diff = day === 6 ? 0 : -(day + 1);
-  d.setDate(d.getDate() + diff);
+  // 周一 00:00 至周日 23:59 视为同一周；周日回退 6 天。
+  d.setDate(d.getDate() - ((day + 6) % 7));
   return torontoDate(d);
 }
 function getWeekDates(weekStart = startOfPlanWeek()) { return Array.from({length:7}, (_,i) => addDays(weekStart,i)); }
+function isWeekendRestDay(dateIso) {
+  const day = parseLocalDate(dateIso).getDay();
+  return day === 0 || day === 6;
+}
+function weekendRestPlanItem(date, template) {
+  return {
+    date, day:template.day, category:'周末固定休息',
+    videoId:null, videoSnapshot:null, periodDay:0, fixedRest:true,
+    rationale:'周六、周日固定休息，优先留给家庭生活与恢复，不自动安排运动视频。',
+    generatedAt:new Date().toISOString()
+  };
+}
+
 function menstrualEndDate() {
   const m = state?.menstrual;
   if (!m?.enabled || !m.startDate) return '';
@@ -3212,13 +3227,13 @@ function dailyBodySummary(date = torontoDate()) {
 
 
 const dayTemplates = [
-  { day: '周六', type:'mobility', label:'恢复拉伸', target:10 },
-  { day: '周日', type:'pilates', label:'轻量垫上 Pilates', target:15 },
   { day: '周一', type:'pilates', label:'主 Pilates', target:20 },
   { day: '周二', type:'postpartum', label:'功能恢复', target:15 },
   { day: '周三', type:'glutes', label:'主 Pilates / 臀部稳定', target:20 },
   { day: '周四', type:'mobility', label:'恢复与活动度', target:10 },
-  { day: '周五', type:'pilates', label:'主训练或恢复', target:20 }
+  { day: '周五', type:'pilates', label:'主训练或恢复', target:20 },
+  { day: '周六', type:'rest', label:'周末固定休息', target:0 },
+  { day: '周日', type:'rest', label:'周末固定休息', target:0 }
 ];
 
 function daysBetweenIso(a, b) {
@@ -3418,7 +3433,7 @@ function rankedUnusedCandidates(approved, template, used, assessment, planContex
 function chooseUniqueVideo(approved, template, used, assessment, index, planContext = {}) {
   const ranked = rankedUnusedCandidates(approved, template, used, assessment, planContext);
   if (!ranked.length) return null;
-  if ((assessment.mode === 'recovery' || planContext.period?.active) && index === 6) {
+  if ((assessment.mode === 'recovery' || planContext.period?.active) && index === 4) {
     const gentle = ranked.find(item => ['mobility', 'meditation'].includes(item.video.focus));
     if (gentle) return gentle.video;
   }
@@ -3434,6 +3449,7 @@ function buildWeeklyPlan(weekStart = startOfPlanWeek(), options = {}) {
     ? new Set(options.blockedVideoIds)
     : new Set(options.blockedVideoIds || []);
   const preserveBeforeDate = options.preserveBeforeDate || '';
+  const preserveExistingDates = !!options.preserveExistingDates;
   const existingPlan = Array.isArray(options.existingPlan) ? options.existingPlan : [];
   const existingByDate = new Map(existingPlan.map(item => [item.date, item]));
   const rotationStats = videoRotationStats(weekStart);
@@ -3441,9 +3457,9 @@ function buildWeeklyPlan(weekStart = startOfPlanWeek(), options = {}) {
   for (const id of recentRotationBlockedIds(weekStart, 14)) blockedVideoIds.add(id);
   // 当前周中“今天之前”的既有安排属于历史部分：保留原视频，并占用视频 ID，
   // 这样从今天开始重排时不会把已经练过/已经安排过的视频再次排进本周。
-  if (preserveBeforeDate) {
+  if (preserveBeforeDate || preserveExistingDates) {
     for (const item of existingPlan) {
-      if (item?.date && item.date < preserveBeforeDate && item.videoId) blockedVideoIds.add(item.videoId);
+      if (item?.videoId && (preserveExistingDates || (item.date && item.date < preserveBeforeDate))) blockedVideoIds.add(item.videoId);
     }
   }
   const used = new Set(blockedVideoIds);
@@ -3461,6 +3477,11 @@ function buildWeeklyPlan(weekStart = startOfPlanWeek(), options = {}) {
         rationale: '该日期已过去，重新生成计划时不再补排或改动。',
         generatedAt: new Date().toISOString()
       };
+    }
+    if (isWeekendRestDay(date)) return weekendRestPlanItem(date, baseTemplate);
+    if (preserveExistingDates && existingByDate.has(date)) {
+      const existing = existingByDate.get(date);
+      return { ...existing, day:baseTemplate.day };
     }
     const period = menstrualContextForDate(date);
     const template = menstrualTemplateForDay(baseTemplate, period);
@@ -3524,7 +3545,7 @@ function generatePlan(weekStart = selectedWeekStart) {
     setPlanForWeek(weekStart, plan); markPlanLocked(weekStart, 'manual-regenerate');
   }
   saveState(); renderAll();
-  const blankDays = plan.filter(item => !item.videoId).length;
+  const blankDays = plan.filter(item => !item.videoId && !isWeekendRestDay(item.date)).length;
   const periodDays = plan.filter(item => item.periodDay).length;
   const label = weekViewLabel(weekStart);
   showToast(blankDays
@@ -3792,8 +3813,13 @@ function fillMissingPlanSlots(weekStart) {
   const rotationStats = videoRotationStats(weekStart);
   let changed = false;
   const repaired = existing.map((item, index) => {
-    if (item?.videoId) return item;
     const date = item?.date || dates[index];
+    if (isWeekendRestDay(date)) {
+      if (item?.fixedRest && !item.videoId) return item;
+      changed = true;
+      return weekendRestPlanItem(date, dayTemplates[index]);
+    }
+    if (item?.videoId) return item;
     const baseTemplate = dayTemplates[index] || dayTemplates[0];
     const period = menstrualContextForDate(date);
     const template = menstrualTemplateForDay(baseTemplate, period);
@@ -3805,6 +3831,79 @@ function fillMissingPlanSlots(weekStart) {
   if (changed) { setPlanForWeek(weekStart, repaired); markPlanLocked(weekStart, 'retired-channel-repair'); }
   return changed;
 }
+// 3.8.2：旧版按周六建档。按每条计划的真实日期重新分组，不移动或删除任何打卡。
+function migrateLegacyWeekSchedule(today = torontoDate()) {
+  if (state.weekScheduleStartDay === 'monday') return false;
+  // 首次重排前保留完整旧数据快照。若浏览器存储空间不足，原存储仍不会被清除。
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const backupKey = 'weeklyResetApp_preMondayWeek_3_8_2';
+      if (!localStorage.getItem(backupKey)) {
+        const original = localStorage.getItem(STORAGE_KEY);
+        if (original) localStorage.setItem(backupKey, original);
+      }
+    } catch (error) { console.warn('无法写入额外迁移备份；原数据仍保留于正式存储', error); }
+  }
+  const current = startOfPlanWeek(today);
+  const grouped = new Map();
+  const allPlans = [...Object.values(state.plansByWeek || {}), state.plan || []];
+  for (const plan of allPlans) {
+    if (!Array.isArray(plan)) continue;
+    for (const item of plan) {
+      if (!item?.date || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) continue;
+      const week = startOfPlanWeek(item.date);
+      if (!grouped.has(week)) grouped.set(week, new Map());
+      const byDate = grouped.get(week);
+      if (!byDate.has(item.date)) byDate.set(item.date, item);
+    }
+  }
+  const moveSaturdayWeek = week => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) return week;
+    return parseLocalDate(week).getDay() === 6 ? addDays(week, 2) : startOfPlanWeek(week);
+  };
+  const movedPreferences = {};
+  for (const [week, pref] of Object.entries(state.weekPreferencesByStart || {})) {
+    const target = moveSaturdayWeek(week);
+    if (!movedPreferences[target]) movedPreferences[target] = pref;
+  }
+  const movedMeta = {};
+  for (const [week, meta] of Object.entries(state.planMetaByWeek || {})) {
+    const target = moveSaturdayWeek(week);
+    if (!movedMeta[target]) movedMeta[target] = meta;
+  }
+  // 先登记历史日期，供新计划的轮换统计查询；这些历史条目原样保留。
+  const migratedPlans = {};
+  for (const [week, byDate] of grouped) {
+    if (week < current) migratedPlans[week] = getWeekDates(week).filter(date => byDate.has(date)).map(date => byDate.get(date));
+  }
+  state.plansByWeek = migratedPlans;
+  state.planMetaByWeek = movedMeta;
+  state.weekPreferencesByStart = movedPreferences;
+  // 当前及未来：保留已有工作日视频，填充缺失工作日，周末强制留空。
+  const futureWeeks = [...grouped.keys()].filter(week => week >= current).sort();
+  for (const week of futureWeeks) {
+    const oldDays = [...grouped.get(week).values()];
+    const plan = buildWeeklyPlan(week, {
+      existingPlan: oldDays, preserveExistingDates: true,
+      preserveBeforeDate: week === current ? today : ''
+    });
+    state.plansByWeek[week] = plan;
+    state.planMetaByWeek[week] = {
+      ...(state.planMetaByWeek[week] || {}),
+      locked:true, reason:'monday-weekend-rest-migration', updatedAt:new Date().toISOString()
+    };
+  }
+  state.weekScheduleStartDay = 'monday';
+  state.plan = state.plansByWeek[current] || [];
+  state.weekPreferences = {
+    weekStart:current,
+    excludedChannels:[...(state.weekPreferencesByStart[current]?.excludedChannels || [])]
+  };
+  selectedWeekStart = current;
+  saveState();
+  return true;
+}
+
 function repairRetiredChannelSlots() {
   state.videos = (state.videos || []).filter(video => !isRetiredChannelName(video.channel));
   state.settings.channels = (state.settings?.channels || []).filter(channel => !isRetiredChannelName(channel.name));
@@ -3836,7 +3935,13 @@ const UI_ZH_EN = {
   '恢复优先 · 智能排课':'Recovery-first · Smart planning','今日':'Today','周计划':'Weekly Plan','视频库':'Video Library','待审核':'Review','训练记录':'History','设置':'Settings',
   '恢复状态优先':'Recovery comes first','计划服务于身体状态，而不是反过来。':'The plan adapts to your body, not the other way around.','今天做什么':'Today’s workout','安装到 iPad':'Install on iPad',
   '身体状态':'Body status','今天适合按计划训练吗？':'Does today’s plan fit how you feel?','本周概览':'This week','负荷与完成情况':'Load & completion','← 上一周':'← Previous','本周计划':'This Week','回到本周':'Back to this week','下一周 →':'Next →',
-  '周六至周五':'Saturday to Friday','计划与实际完成':'Plan & actual','周计划基础设置':'Weekly baseline settings','重新生成计划':'Regenerate plan','按日期调整强度':'Adjust by date','生理期安排':'Period plan','关闭模式':'Turn off','设置 / 修改':'Set / Edit',
+  '周一至周日':'Monday to Sunday',
+  '周一':'Mon','周二':'Tue','周三':'Wed','周四':'Thu','周五':'Fri','周六':'Sat','周日':'Sun',
+  '周末固定休息':'Fixed weekend rest','周末休息':'Weekend rest','工作日完成':'Weekdays completed',
+  '周六和周日不安排运动；周一再继续训练。':'No workouts on Saturday or Sunday. Resume on Monday.',
+  '周一至周五安排训练，周六、周日固定休息。':'Work out Monday through Friday; rest on weekends.',
+  '周六、周日固定休息。':'Saturday and Sunday are fixed rest days.',
+  '计划与实际完成':'Plan & actual','周计划基础设置':'Weekly baseline settings','重新生成计划':'Regenerate plan','按日期调整强度':'Adjust by date','生理期安排':'Period plan','关闭模式':'Turn off','设置 / 修改':'Set / Edit',
   '生理期模式严格排除腹肌／核心训练及臀桥、肩桥、髋抬高等骨盆倒置动作；候选不足时会安排休息。':'Period mode strictly excludes direct ab/core work and pelvic-elevation moves such as bridges; rest is used when no suitable video is available.',
   '本周频道偏好':'Channel preferences','这一周不想跟练哪些 YouTuber？':'Which YouTubers do you want to skip this week?','全部恢复':'Restore all','勾选的频道不会出现在所选周的自动排课或“替换”结果中。每一周分别保存。':'Selected channels are excluded from auto-planning and replacements for this week. Saved separately by week.','保存并重新生成':'Save & regenerate',
   '已批准内容':'Approved content','训练视频库':'Training video library','补充内置备用视频':'Add built-in backup videos','手动添加视频':'Add video manually','全部频道':'All channels','全部运动类型':'All exercise types','有氧':'Cardio','塑形':'Sculpt','力量训练':'Strength','瑜伽':'Yoga','拉伸':'Stretch','活动度 / 功能恢复':'Mobility / Functional recovery','冥想':'Meditation','待确认':'Needs review','全部体位':'All positions','垫上为主':'Mostly mat','混合':'Mixed','站立为主':'Mostly standing','全部偏好':'All preferences','♥ 喜欢':'♥ Like','不喜欢':'Dislike','未标记':'Unrated',
@@ -4001,27 +4106,27 @@ function renderHome() {
         </div>
       </div>
       <div class="hero-visual">${video.thumbnail ? `<img src="${escapeHtml(video.thumbnail)}" alt="${escapeHtml(video.title)}的视频封面">` : `<div class="hero-visual-placeholder">${escapeHtml(video.channel)}</div>`}</div>
-    </div>` : `<div class="hero-layout hero-rest-layout"><div class="hero-content"><p class="eyebrow hero-eyebrow">今日恢复</p><h3>休息 / 自主恢复</h3><p class="hero-rationale">${escapeHtml(planItem?.rationale || '当前可用候选视频不足，已避免周内及本周／下周重复安排。')}</p><div class="hero-actions"><button class="secondary-btn community-btn" onclick="openCommunityClass('${today}')">${communityRecord ? '修改现场课' : 'Community Centre 课程打卡'}</button></div></div><div class="hero-rest-mark">REST</div></div>`;
+    </div>` : `<div class="hero-layout hero-rest-layout"><div class="hero-content"><p class="eyebrow hero-eyebrow">${isWeekendRestDay(today) ? '周末休息' : '今日恢复'}</p><h3>休息 / 自主恢复</h3><p class="hero-rationale">${escapeHtml(planItem?.rationale || '当前可用候选视频不足，已避免周内及本周／下周重复安排。')}</p><div class="hero-actions">${!isWeekendRestDay(today) || communityRecord ? `<button class="secondary-btn community-btn" onclick="openCommunityClass('${today}')">${communityRecord ? '修改现场课' : 'Community Centre 课程打卡'}</button>` : ''}</div></div><div class="hero-rest-mark">REST</div></div>`;
 
   const dailyEnergy = dailyEnergyForDate(today);
   const dailyBody = dailyBodyForDate(today);
   const effectiveToday = effectiveAssessmentForDate(today);
   const hasDailyRisk = !!dailyBody && (dailyBody.pains.length || dailyBody.poorSleep || dailyBody.heavyCare || dailyBody.recoveryState !== 'normal' || Number(dailyBody.load || 3) >= 4);
-  const energyHint = dailyEnergy == null || !dailyBody ? '今天还没有完整 Check-in' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? '今天建议轻一点' : dailyEnergy === 3 ? '按原计划最合适' : '状态不错，可以选择挑战一点';
-  const energyAction = dailyEnergy == null || !dailyBody ? '' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用轻量建议</button>` : dailyEnergy >= 4 ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用挑战建议</button>` : '';
+  const energyHint = isWeekendRestDay(today) ? '周末固定休息，不安排训练' : dailyEnergy == null || !dailyBody ? '今天还没有完整 Check-in' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? '今天建议轻一点' : dailyEnergy === 3 ? '按原计划最合适' : '状态不错，可以选择挑战一点';
+  const energyAction = isWeekendRestDay(today) || dailyEnergy == null || !dailyBody ? '' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用轻量建议</button>` : dailyEnergy >= 4 ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用挑战建议</button>` : '';
   document.getElementById('quickCheck').innerHTML = `
     <div class="check-option"><div><strong>今日状态 Check-in</strong><div class="helper" style="margin:4px 0 0">${dailyEnergy == null ? '精力未填写' : `精力 ${dailyEnergy}/5 · ${dailyEnergyLabel(dailyEnergy)}`} · ${dailyBodySummary(today)} · ${energyHint}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${energyAction}<button onclick="openDailyEnergyDialog()">${dailyEnergy == null || !dailyBody ? 'Check-in' : '修改'}</button></div></div>
     <div class="check-option"><div><strong>整周持续性限制</strong><div class="helper" style="margin:4px 0 0">${(state.assessment.pains || []).length ? state.assessment.pains.map(painName).join('、') : '无持续性不适'} · 基础负荷 ${state.assessment.load}/5</div></div><button onclick="document.getElementById('assessmentDialog').showModal()">周设置</button></div>
     <div class="check-option"><div><strong>生理期安排</strong><div class="helper" style="margin:4px 0 0">${state.menstrual.enabled ? menstrualStatusText() : '未启用；可按日期自动降低强度'}</div></div><button onclick="openMenstrualDialog()">${state.menstrual.enabled ? '修改' : '设置'}</button></div>
-    <div class="check-option"><div><strong>今日手动调整</strong><div class="helper" style="margin:4px 0 0">只改今天，不改变后面几天</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button onclick="swapPlan('${planItem?.date}')">换轻一点</button>${dailyEnergy != null && dailyEnergy >= 4 ? `<button onclick="challengePlan('${planItem?.date}')">挑战一点</button>` : ''}</div></div>
-    <div class="check-option community-check-option"><div><strong>Community Centre 现场课</strong><div class="helper" style="margin:4px 0 0">普拉提或瑜伽课可直接覆盖今日视频</div></div><button onclick="openCommunityClass('${today}')">${communityRecord ? '修改' : '打卡'}</button></div>`;
+    ${isWeekendRestDay(today) ? '<div class="check-option"><div><strong>周末固定休息</strong><div class="helper" style="margin:4px 0 0">周六和周日不安排运动；周一再继续训练。</div></div></div>' : `<div class="check-option"><div><strong>今日手动调整</strong><div class="helper" style="margin:4px 0 0">只改今天，不改变后面几天</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button onclick="swapPlan('${planItem?.date}')">换轻一点</button>${dailyEnergy != null && dailyEnergy >= 4 ? `<button onclick="challengePlan('${planItem?.date}')">挑战一点</button>` : ''}</div></div>`}
+    ${!isWeekendRestDay(today) || communityRecord ? `<div class="check-option community-check-option"><div><strong>Community Centre 现场课</strong><div class="helper" style="margin:4px 0 0">普拉提或瑜伽课可直接覆盖今日视频</div></div><button onclick="openCommunityClass('${today}')">${communityRecord ? '修改' : '打卡'}</button></div>` : ''}`;
 
   const activeStatuses = new Set(['completed','partial','swapped']);
-  const completed = new Set(state.feedback.filter(f => getWeekDates().includes(f.date) && activeStatuses.has(f.status)).map(f => f.date)).size;
+  const completed = new Set(state.feedback.filter(f => getWeekDates().includes(f.date) && !isWeekendRestDay(f.date) && activeStatuses.has(f.status)).map(f => f.date)).size;
   const minutes = state.feedback.filter(f => getWeekDates().includes(f.date)).reduce((sum,f)=>sum+Number(f.minutes||0),0);
   document.getElementById('weekSummary').innerHTML = `
     ${summaryCard('恢复等级', modeLabels[state.assessment.mode])}
-    ${summaryCard('完成天数', `${completed}/7`)}
+    ${summaryCard('工作日完成', `${completed}/5`)}
     ${summaryCard('累计分钟', `${minutes}`)}
     ${summaryCard('待审核视频', `${state.pending.filter(v=>!v.approved&&!v.rejected).length}`)}
   `;
@@ -4092,8 +4197,8 @@ function renderWeek() {
   document.querySelectorAll('input[name="weeklyExcludedChannel"]').forEach(input => input.disabled = isPast);
   const pairedWeekIds = crossWeekBlockedVideoIds(selectedWeekStart);
   const availableCount = approvedPlanVideos(selectedWeekStart).filter(video => !pairedWeekIds.has(video.id) && isVideoEligibleForAssessment(video, a)).length;
-  const blankDays = selectedPlan.filter(item => !item.videoId).length;
-  const scheduledCount = selectedPlan.length - blankDays;
+  const blankWorkdays = selectedPlan.filter(item => !item.videoId && !isWeekendRestDay(item.date)).length;
+  const scheduledCount = selectedPlan.filter(item => !!item.videoId).length;
   const weekRecords = state.feedback.filter(record => getWeekDates(selectedWeekStart).includes(record.date));
   const completedDates = new Set(weekRecords.filter(record => ['completed','partial','swapped'].includes(record.status)).map(record => record.date));
   const actualActivities = new Set(weekRecords
@@ -4108,9 +4213,9 @@ function renderWeek() {
   `;
   document.getElementById('planAvailabilityNotice').innerHTML = !selectedPlan.length
     ? `<div class="notice"><strong>这一周还没有保存计划。</strong><br>${isPast ? '升级前未保存该周计划，但下方仍会显示已有实际训练记录。' : '点击重新生成计划创建这一周的安排。'}</div>`
-    : blankDays
-      ? `<div class="notice"><strong>已启用周内与跨周不重复排课。</strong><br>排除相邻计划周已用视频后，这一周有 ${availableCount} 个可用候选，已安排 ${scheduledCount} 个不同视频；其余 ${blankDays} 天显示为休息或自主恢复。</div>`
-      : `<div class="notice"><strong>${isPast ? '历史计划与实际记录并列显示。' : selectedWeekStart === addDays(startOfPlanWeek(), 7) ? '下周与本周没有重复视频。' : '本周内部没有重复；下周生成时也会避开这些视频。'}</strong><br>已从 ${availableCount} 个可用候选中安排 ${scheduledCount} 个不同视频。</div>`;
+    : blankWorkdays
+      ? `<div class="notice"><strong>周六、周日固定休息。</strong><br>这一周已安排 ${scheduledCount} 个训练视频；另有 ${blankWorkdays} 个工作日因适合的候选不足而休息。</div>`
+      : `<div class="notice"><strong>${isPast ? '历史计划与实际记录并列显示。' : '周一至周五安排训练，周六、周日固定休息。'}</strong><br>本周安排 ${scheduledCount} 个视频，工作日继续遵守安全、时长与不重复规则。</div>`;
   const today = torontoDate();
   const dates = getWeekDates(selectedWeekStart);
   const planByDate = new Map(selectedPlan.map(item => [item.date, item]));
@@ -4118,9 +4223,9 @@ function renderWeek() {
     const item = planByDate.get(date) || { date, day: dayTemplates[index].day, category: dayTemplates[index].label, videoId:null, rationale:'该周没有保存此日期的计划。', periodDay:0 };
     const video = getPlanVideo(item); const feedback = getFeedback(item.date);
     const communityRecord = communityRecordForDate(item.date);
-    const canEditPlan = !isPast;
+    const canEditPlan = !isPast && !isWeekendRestDay(item.date);
     const canRecord = item.date <= today && !!video;
-    const canRecordCommunity = item.date <= today;
+    const canRecordCommunity = item.date <= today && (!isWeekendRestDay(item.date) || !!communityRecord);
     return `<article class="day-card ${item.date===today?'today':''} ${isPast?'past-week-card':''} ${isFuture?'future-week-card':''}">
       <div class="day-date"><strong>${parseLocalDate(item.date).getDate()}</strong><span>${item.day}</span></div>
       <div class="day-media">${weekThumbnailMarkup(video)}</div>
@@ -4371,6 +4476,7 @@ window.openDailyEnergyDialog = function() {
 };
 
 window.applyDailyEnergySuggestion = function(date = torontoDate()) {
+  if (isWeekendRestDay(date)) { showToast('今天是周末固定休息日，无需调整训练'); return; }
   const energy = dailyEnergyForDate(date);
   const body = dailyBodyForDate(date);
   if (energy == null || !body) { showToast('请先完成今日状态 Check-in'); return; }
@@ -4411,7 +4517,8 @@ function saveDailyStatus(value, body, date = torontoDate(), startsPeriod = false
   if (futureChanged) regenerateCurrentAndNext();
   else renderAll();
   const effective = effectiveAssessmentForDate(date);
-  if (startsPeriod) showToast('已记录今天开始生理期：从今天起按生理期规则重排，过去日期不变');
+  if (isWeekendRestDay(date)) showToast('今日状态已保存；周末仍为固定休息日');
+  else if (startsPeriod) showToast('已记录今天开始生理期：从今天起按生理期规则重排，过去日期不变');
   else if (body.persistent && body.pains?.length) showToast('已记录持续性不适：从今天起影响后续计划，过去日期不变');
   else if (energy <= 2 || effective.mode === 'recovery' || body.pains?.length || body.poorSleep || body.heavyCare) showToast('今日状态已保存：建议今天换轻一点；不会改动明天及之后的计划');
   else if (energy >= 4) showToast('今日状态已保存：状态不错，可选择“挑战一点”');
@@ -4434,6 +4541,7 @@ function clearWeeklyChannelExclusions() {
 }
 
 window.swapPlan = function(date) {
+  if (isWeekendRestDay(date)) { showToast('周六和周日固定休息，不安排自动训练'); return; }
   const weekStart = weekStartForDate(date);
   if (weekRelation(weekStart) === 'past') { showToast('历史周计划已锁定'); return; }
   const weekPlan = planForWeek(weekStart);
@@ -4472,6 +4580,7 @@ window.swapPlan = function(date) {
 };
 
 window.challengePlan = function(date) {
+  if (isWeekendRestDay(date)) { showToast('周末固定休息，不开放挑战训练'); return; }
   const weekStart = weekStartForDate(date);
   if (weekRelation(weekStart) === 'past') { showToast('历史周计划已锁定'); return; }
   const period = menstrualContextForDate(date);
@@ -4921,6 +5030,8 @@ function importData(file) {
           return normalizeMenstrualSafety({ ...(seed || {}), ...video, ...(seed ? { title:seed.title,channel:seed.channel,url:seed.url,thumbnail:seed.thumbnail } : {}), verificationStatus:status, verifiedAt:seed?null:(video.verifiedAt||null), verifiedChannel:seed?'':(video.verifiedChannel||''), linkAuditStatus:seed?'curated':(video.linkAuditStatus||'manual'), linkAuditedAt:seed?null:(video.linkAuditedAt||null), originalChannel:video.originalChannel||'', originalTitle:video.originalTitle||'', verificationNote:/^本次未能核实/.test(String(video.verificationNote||''))?'':(video.verificationNote||''), autoPlanEligible:video.autoPlanEligible!==false, needsReview:!!video.needsReview&&status==='corrected' });
         });
       state = parsed;
+      state.weekScheduleStartDay = parsed.weekScheduleStartDay === 'monday' ? 'monday' : 'saturday';
+      migrateLegacyWeekSchedule();
       selectedWeekStart = startOfPlanWeek();
       repairRetiredChannelSlots();
       ensureCurrentAndNextPlans();
@@ -5222,6 +5333,7 @@ window.addEventListener('appinstalled',()=>showToast('已安装到主屏幕'));
 
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.error));}
 
+migrateLegacyWeekSchedule();
 repairRetiredChannelSlots();
 bindEvents();bindDisplaySettings();hydrateAssessmentDialog();hydrateMenstrualDialog();renderAll();applyAppearance();applyLocalization();updateInstallButtonForDevice();
 if (!state.settings.shareOnboardingSeen) {
