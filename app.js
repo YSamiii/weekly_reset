@@ -3834,6 +3834,16 @@ function fillMissingPlanSlots(weekStart) {
 // 3.8.2：旧版按周六建档。按每条计划的真实日期重新分组，不移动或删除任何打卡。
 function migrateLegacyWeekSchedule(today = torontoDate()) {
   if (state.weekScheduleStartDay === 'monday') return false;
+  // 首次重排前保留完整旧数据快照。若浏览器存储空间不足，原存储仍不会被清除。
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const backupKey = 'weeklyResetApp_preMondayWeek_3_8_2';
+      if (!localStorage.getItem(backupKey)) {
+        const original = localStorage.getItem(STORAGE_KEY);
+        if (original) localStorage.setItem(backupKey, original);
+      }
+    } catch (error) { console.warn('无法写入额外迁移备份；原数据仍保留于正式存储', error); }
+  }
   const current = startOfPlanWeek(today);
   const grouped = new Map();
   const allPlans = [...Object.values(state.plansByWeek || {}), state.plan || []];
