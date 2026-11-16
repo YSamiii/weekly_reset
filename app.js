@@ -4091,27 +4091,27 @@ function renderHome() {
         </div>
       </div>
       <div class="hero-visual">${video.thumbnail ? `<img src="${escapeHtml(video.thumbnail)}" alt="${escapeHtml(video.title)}的视频封面">` : `<div class="hero-visual-placeholder">${escapeHtml(video.channel)}</div>`}</div>
-    </div>` : `<div class="hero-layout hero-rest-layout"><div class="hero-content"><p class="eyebrow hero-eyebrow">今日恢复</p><h3>休息 / 自主恢复</h3><p class="hero-rationale">${escapeHtml(planItem?.rationale || '当前可用候选视频不足，已避免周内及本周／下周重复安排。')}</p><div class="hero-actions"><button class="secondary-btn community-btn" onclick="openCommunityClass('${today}')">${communityRecord ? '修改现场课' : 'Community Centre 课程打卡'}</button></div></div><div class="hero-rest-mark">REST</div></div>`;
+    </div>` : `<div class="hero-layout hero-rest-layout"><div class="hero-content"><p class="eyebrow hero-eyebrow">${isWeekendRestDay(today) ? '周末休息' : '今日恢复'}</p><h3>休息 / 自主恢复</h3><p class="hero-rationale">${escapeHtml(planItem?.rationale || '当前可用候选视频不足，已避免周内及本周／下周重复安排。')}</p><div class="hero-actions"><button class="secondary-btn community-btn" onclick="openCommunityClass('${today}')">${communityRecord ? '修改现场课' : 'Community Centre 课程打卡'}</button></div></div><div class="hero-rest-mark">REST</div></div>`;
 
   const dailyEnergy = dailyEnergyForDate(today);
   const dailyBody = dailyBodyForDate(today);
   const effectiveToday = effectiveAssessmentForDate(today);
   const hasDailyRisk = !!dailyBody && (dailyBody.pains.length || dailyBody.poorSleep || dailyBody.heavyCare || dailyBody.recoveryState !== 'normal' || Number(dailyBody.load || 3) >= 4);
-  const energyHint = dailyEnergy == null || !dailyBody ? '今天还没有完整 Check-in' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? '今天建议轻一点' : dailyEnergy === 3 ? '按原计划最合适' : '状态不错，可以选择挑战一点';
-  const energyAction = dailyEnergy == null || !dailyBody ? '' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用轻量建议</button>` : dailyEnergy >= 4 ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用挑战建议</button>` : '';
+  const energyHint = isWeekendRestDay(today) ? '周末固定休息，不安排训练' : dailyEnergy == null || !dailyBody ? '今天还没有完整 Check-in' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? '今天建议轻一点' : dailyEnergy === 3 ? '按原计划最合适' : '状态不错，可以选择挑战一点';
+  const energyAction = isWeekendRestDay(today) || dailyEnergy == null || !dailyBody ? '' : (dailyEnergy <= 2 || effectiveToday.mode === 'recovery' || hasDailyRisk) ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用轻量建议</button>` : dailyEnergy >= 4 ? `<button onclick="applyDailyEnergySuggestion('${today}')">应用挑战建议</button>` : '';
   document.getElementById('quickCheck').innerHTML = `
     <div class="check-option"><div><strong>今日状态 Check-in</strong><div class="helper" style="margin:4px 0 0">${dailyEnergy == null ? '精力未填写' : `精力 ${dailyEnergy}/5 · ${dailyEnergyLabel(dailyEnergy)}`} · ${dailyBodySummary(today)} · ${energyHint}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${energyAction}<button onclick="openDailyEnergyDialog()">${dailyEnergy == null || !dailyBody ? 'Check-in' : '修改'}</button></div></div>
     <div class="check-option"><div><strong>整周持续性限制</strong><div class="helper" style="margin:4px 0 0">${(state.assessment.pains || []).length ? state.assessment.pains.map(painName).join('、') : '无持续性不适'} · 基础负荷 ${state.assessment.load}/5</div></div><button onclick="document.getElementById('assessmentDialog').showModal()">周设置</button></div>
     <div class="check-option"><div><strong>生理期安排</strong><div class="helper" style="margin:4px 0 0">${state.menstrual.enabled ? menstrualStatusText() : '未启用；可按日期自动降低强度'}</div></div><button onclick="openMenstrualDialog()">${state.menstrual.enabled ? '修改' : '设置'}</button></div>
-    <div class="check-option"><div><strong>今日手动调整</strong><div class="helper" style="margin:4px 0 0">只改今天，不改变后面几天</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button onclick="swapPlan('${planItem?.date}')">换轻一点</button>${dailyEnergy != null && dailyEnergy >= 4 ? `<button onclick="challengePlan('${planItem?.date}')">挑战一点</button>` : ''}</div></div>
+    ${isWeekendRestDay(today) ? '<div class="check-option"><div><strong>周末固定休息</strong><div class="helper" style="margin:4px 0 0">周六和周日不安排运动；周一再继续训练。</div></div></div>' : `<div class="check-option"><div><strong>今日手动调整</strong><div class="helper" style="margin:4px 0 0">只改今天，不改变后面几天</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button onclick="swapPlan('${planItem?.date}')">换轻一点</button>${dailyEnergy != null && dailyEnergy >= 4 ? `<button onclick="challengePlan('${planItem?.date}')">挑战一点</button>` : ''}</div></div>`}
     <div class="check-option community-check-option"><div><strong>Community Centre 现场课</strong><div class="helper" style="margin:4px 0 0">普拉提或瑜伽课可直接覆盖今日视频</div></div><button onclick="openCommunityClass('${today}')">${communityRecord ? '修改' : '打卡'}</button></div>`;
 
   const activeStatuses = new Set(['completed','partial','swapped']);
-  const completed = new Set(state.feedback.filter(f => getWeekDates().includes(f.date) && activeStatuses.has(f.status)).map(f => f.date)).size;
+  const completed = new Set(state.feedback.filter(f => getWeekDates().includes(f.date) && !isWeekendRestDay(f.date) && activeStatuses.has(f.status)).map(f => f.date)).size;
   const minutes = state.feedback.filter(f => getWeekDates().includes(f.date)).reduce((sum,f)=>sum+Number(f.minutes||0),0);
   document.getElementById('weekSummary').innerHTML = `
     ${summaryCard('恢复等级', modeLabels[state.assessment.mode])}
-    ${summaryCard('完成天数', `${completed}/7`)}
+    ${summaryCard('工作日完成', `${completed}/5`)}
     ${summaryCard('累计分钟', `${minutes}`)}
     ${summaryCard('待审核视频', `${state.pending.filter(v=>!v.approved&&!v.rejected).length}`)}
   `;
@@ -4182,8 +4182,8 @@ function renderWeek() {
   document.querySelectorAll('input[name="weeklyExcludedChannel"]').forEach(input => input.disabled = isPast);
   const pairedWeekIds = crossWeekBlockedVideoIds(selectedWeekStart);
   const availableCount = approvedPlanVideos(selectedWeekStart).filter(video => !pairedWeekIds.has(video.id) && isVideoEligibleForAssessment(video, a)).length;
-  const blankDays = selectedPlan.filter(item => !item.videoId).length;
-  const scheduledCount = selectedPlan.length - blankDays;
+  const blankWorkdays = selectedPlan.filter(item => !item.videoId && !isWeekendRestDay(item.date)).length;
+  const scheduledCount = selectedPlan.filter(item => !!item.videoId).length;
   const weekRecords = state.feedback.filter(record => getWeekDates(selectedWeekStart).includes(record.date));
   const completedDates = new Set(weekRecords.filter(record => ['completed','partial','swapped'].includes(record.status)).map(record => record.date));
   const actualActivities = new Set(weekRecords
@@ -4198,9 +4198,9 @@ function renderWeek() {
   `;
   document.getElementById('planAvailabilityNotice').innerHTML = !selectedPlan.length
     ? `<div class="notice"><strong>这一周还没有保存计划。</strong><br>${isPast ? '升级前未保存该周计划，但下方仍会显示已有实际训练记录。' : '点击重新生成计划创建这一周的安排。'}</div>`
-    : blankDays
-      ? `<div class="notice"><strong>已启用周内与跨周不重复排课。</strong><br>排除相邻计划周已用视频后，这一周有 ${availableCount} 个可用候选，已安排 ${scheduledCount} 个不同视频；其余 ${blankDays} 天显示为休息或自主恢复。</div>`
-      : `<div class="notice"><strong>${isPast ? '历史计划与实际记录并列显示。' : selectedWeekStart === addDays(startOfPlanWeek(), 7) ? '下周与本周没有重复视频。' : '本周内部没有重复；下周生成时也会避开这些视频。'}</strong><br>已从 ${availableCount} 个可用候选中安排 ${scheduledCount} 个不同视频。</div>`;
+    : blankWorkdays
+      ? `<div class="notice"><strong>周六、周日固定休息。</strong><br>这一周已安排 ${scheduledCount} 个训练视频；另有 ${blankWorkdays} 个工作日因适合的候选不足而休息。</div>`
+      : `<div class="notice"><strong>${isPast ? '历史计划与实际记录并列显示。' : '周一至周五安排训练，周六、周日固定休息。'}</strong><br>本周安排 ${scheduledCount} 个视频，工作日继续遵守安全、时长与不重复规则。</div>`;
   const today = torontoDate();
   const dates = getWeekDates(selectedWeekStart);
   const planByDate = new Map(selectedPlan.map(item => [item.date, item]));
@@ -4208,9 +4208,9 @@ function renderWeek() {
     const item = planByDate.get(date) || { date, day: dayTemplates[index].day, category: dayTemplates[index].label, videoId:null, rationale:'该周没有保存此日期的计划。', periodDay:0 };
     const video = getPlanVideo(item); const feedback = getFeedback(item.date);
     const communityRecord = communityRecordForDate(item.date);
-    const canEditPlan = !isPast;
+    const canEditPlan = !isPast && !isWeekendRestDay(item.date);
     const canRecord = item.date <= today && !!video;
-    const canRecordCommunity = item.date <= today;
+    const canRecordCommunity = item.date <= today && (!isWeekendRestDay(item.date) || !!communityRecord);
     return `<article class="day-card ${item.date===today?'today':''} ${isPast?'past-week-card':''} ${isFuture?'future-week-card':''}">
       <div class="day-date"><strong>${parseLocalDate(item.date).getDate()}</strong><span>${item.day}</span></div>
       <div class="day-media">${weekThumbnailMarkup(video)}</div>
@@ -4461,6 +4461,7 @@ window.openDailyEnergyDialog = function() {
 };
 
 window.applyDailyEnergySuggestion = function(date = torontoDate()) {
+  if (isWeekendRestDay(date)) { showToast('今天是周末固定休息日，无需调整训练'); return; }
   const energy = dailyEnergyForDate(date);
   const body = dailyBodyForDate(date);
   if (energy == null || !body) { showToast('请先完成今日状态 Check-in'); return; }
@@ -4501,7 +4502,8 @@ function saveDailyStatus(value, body, date = torontoDate(), startsPeriod = false
   if (futureChanged) regenerateCurrentAndNext();
   else renderAll();
   const effective = effectiveAssessmentForDate(date);
-  if (startsPeriod) showToast('已记录今天开始生理期：从今天起按生理期规则重排，过去日期不变');
+  if (isWeekendRestDay(date)) showToast('今日状态已保存；周末仍为固定休息日');
+  else if (startsPeriod) showToast('已记录今天开始生理期：从今天起按生理期规则重排，过去日期不变');
   else if (body.persistent && body.pains?.length) showToast('已记录持续性不适：从今天起影响后续计划，过去日期不变');
   else if (energy <= 2 || effective.mode === 'recovery' || body.pains?.length || body.poorSleep || body.heavyCare) showToast('今日状态已保存：建议今天换轻一点；不会改动明天及之后的计划');
   else if (energy >= 4) showToast('今日状态已保存：状态不错，可选择“挑战一点”');
@@ -4524,6 +4526,7 @@ function clearWeeklyChannelExclusions() {
 }
 
 window.swapPlan = function(date) {
+  if (isWeekendRestDay(date)) { showToast('周六和周日固定休息，不安排自动训练'); return; }
   const weekStart = weekStartForDate(date);
   if (weekRelation(weekStart) === 'past') { showToast('历史周计划已锁定'); return; }
   const weekPlan = planForWeek(weekStart);
@@ -4562,6 +4565,7 @@ window.swapPlan = function(date) {
 };
 
 window.challengePlan = function(date) {
+  if (isWeekendRestDay(date)) { showToast('周末固定休息，不开放挑战训练'); return; }
   const weekStart = weekStartForDate(date);
   if (weekRelation(weekStart) === 'past') { showToast('历史周计划已锁定'); return; }
   const period = menstrualContextForDate(date);
