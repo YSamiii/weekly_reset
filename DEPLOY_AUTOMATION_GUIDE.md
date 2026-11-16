@@ -34,3 +34,22 @@ GitHub 与 Vercel 的云端服务**不能自行写入用户 Windows F 盘**。�
 - 本分支只准备部署工作流与 3.8.1，尚未完成生产发布；
 - 本地集成测试涵盖：59/179 秒排除、180/181 秒保留、缺失 duration 排除；
 - 需要在实际部署后验证 GitHub Pages 前端更新、Vercel /api/health、频道同步和待审核筛选。
+
+## 2026-11-16 实际核查与更新
+- 线上生产 API `https://weekly-reset-youtube.vercel.app/api/health` 返回 `3.4.1`，说明 3.8.1 尚未部署。
+- Vercel 项目 `weekly-reset-youtube` 的 Production 环境已存在 `YOUTUBE_API_KEY`（仅检查变量名称，未读取值）。
+- GitHub PR #1 通过自动语法与过滤测试。
+- CI 从仓库根目录构建，期望 Vercel 项目的 `Root Directory` 设置为 `vercel-backend`。部署前必须在现有项目的 Settings → Build and Deployment 中确认，不要把目录又加一层。
+
+## 无命令行的一次性浏览器操作
+1. 打开 [Vercel Tokens](https://vercel.com/account/tokens)，以现有 Vercel 账号为范围创建用于 `weekly-reset-youtube` 自动部署的访问令牌。按界面允许范围选择最窄权限与适当有效期；不要将令牌发给 ChatGPT。
+2. 打开 [GitHub Actions Repository Secrets](https://github.com/YSamiii/weekly_reset/settings/secrets/actions) → New repository secret。名称准确填写 `VERCEL_TOKEN`，Value 在浏览器内粘贴刚才的令牌，保存。
+3. 打开 [GitHub Pages Settings](https://github.com/YSamiii/weekly_reset/settings/pages)，检查当前 Source。若本来是 `Deploy from a branch → main → /(root)`，不要改动；若不同，先核实既有正式网址和发布流程，不应贸然切换。
+4. 在 Vercel 项目 `weekly-reset-youtube` 的 Settings 中确认 `Root Directory = vercel-backend`。本次不能通过连接工具核实该隐藏设置，因此不自动修改。
+5. 以上全部确认后再审阅/合并 [PR #1](https://github.com/YSamiii/weekly_reset/pull/1)，由 `main` 触发 GitHub Actions 自动测试与部署；不需要在个人电脑安装 Node.js。
+
+## Windows F 盘唯一项目副本
+- 项目正式路径固定为 `F:\ChatGPT app\手机端\运动计划`。
+- 连接工具只有 GitHub/Vercel 云端权限，当前未获 Windows F 盘文件访问权；不能称已迁移 F 盘。
+- 可以在有 F 盘访问权限的桌面工作环境使用 GitHub Desktop 的 `File → Clone repository`，选择仓库 `YSamiii/weekly_reset`，本地路径设为上述 F 盘目录。**先确认该文件夹不存在未备份的旧版本，避免覆盖**。
+- 这会建立有 Git 历史的本地正式副本；但未来若只在本地修改文件，仍需提交并推送 GitHub 才会触发云端自动部署。仅有一个 F 盘目录并不等于已建立无人值守的本地自动同步机制。
