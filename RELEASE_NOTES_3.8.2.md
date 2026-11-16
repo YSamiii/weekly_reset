@@ -11,6 +11,7 @@
 - 过去日期的原计划和训练反馈全部保留；已有周一至周五安排尽可能保留。
 - 未来周末的旧视频安排替换为明确的休息日；原有视频库、喜欢/不喜欢、每日状态、设置和打卡不删除。
 - 迁移只执行一次，升级或日后从旧 JSON 备份恢复时均可使用。
+- 首次迁移前尽可能自动在浏览器本地保存一份原始数据快照（`weeklyResetApp_preMondayWeek_3_8_2`）；额外备份受浏览器本地存储空间限制。
 
 ## 发布
 - 仅更新 GitHub Pages 前端（app.js、index.html、manifest.webmanifest、sw.js），Vercel YouTube API 保持 3.8.1，不需重新部署。
