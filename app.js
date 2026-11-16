@@ -3832,9 +3832,8 @@ function fillMissingPlanSlots(weekStart) {
   return changed;
 }
 // 3.8.2：旧版按周六建档。按每条计划的真实日期重新分组，不移动或删除任何打卡。
-function migrateLegacyWeekSchedule() {
+function migrateLegacyWeekSchedule(today = torontoDate()) {
   if (state.weekScheduleStartDay === 'monday') return false;
-  const today = torontoDate();
   const current = startOfPlanWeek(today);
   const grouped = new Map();
   const allPlans = [...Object.values(state.plansByWeek || {}), state.plan || []];
