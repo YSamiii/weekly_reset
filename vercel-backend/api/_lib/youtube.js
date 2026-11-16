@@ -59,10 +59,14 @@ export async function yt(path, params, key) {
   return data;
 }
 
-export function isoMinutes(iso='PT0M') {
-  const m=String(iso).match(/P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+export function isoSeconds(iso='') {
+  const m=String(iso).match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/);
   if(!m) return 0;
-  const seconds=(Number(m[1]||0)*86400)+(Number(m[2]||0)*3600)+(Number(m[3]||0)*60)+Number(m[4]||0);
+  return (Number(m[1]||0)*86400)+(Number(m[2]||0)*3600)+(Number(m[3]||0)*60)+Number(m[4]||0);
+}
+
+export function isoMinutes(iso='PT0M') {
+  const seconds=isoSeconds(iso);
   return Math.max(1, Math.ceil(seconds/60));
 }
 

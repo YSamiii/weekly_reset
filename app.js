@@ -4793,10 +4793,13 @@ async function syncYouTube({ silent = false } = {}) {
     });
     const data = await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(data.error || data.message || `Worker 返回 ${response.status}`);
-    let added=0;
+    let added=0, durationUnavailable=false;
     for(const video of data.videos || []){
       const videoId=video.id; if(!videoId) continue;
       if(state.videos.some(v=>v.id===videoId)||state.pending.some(v=>v.id===videoId)) continue;
+      const durationSeconds=Number(video.durationSeconds);
+      if(!Number.isFinite(durationSeconds)){durationUnavailable=true;continue;}
+      if(durationSeconds<180) continue;
       state.pending.push({
         id:videoId,title:video.title||'未命名视频',channel:video.channelTitle||video.channel||'',
         description:video.description||'',duration:Number(video.durationMinutes||0),
@@ -4819,7 +4822,8 @@ async function syncYouTube({ silent = false } = {}) {
     state.settings.lastSync=new Date().toISOString();
     state.settings.lastSyncError='';
     saveState();renderAll();
-    if(!silent || added) showToast(added?`发现 ${added} 个新视频，已放入待审核`:'没有发现新视频');
+    if(durationUnavailable && !added) showToast('Vercel 后端版本较旧，无法读取视频真实时长。请部署 ZIP 中的 vercel-backend 后再同步。');
+    else if(!silent || added) showToast(added?`发现 ${added} 个新视频，已放入待审核`:'没有符合时长要求的新视频');
   } catch(error){
     console.error(error);
     state.settings.lastSyncError = String(error.message || error);

@@ -1,5 +1,5 @@
 import { rateLimit } from './_lib/rate-limit.js';
-import { handleOptions, sendJson, requireKey, yt, isoMinutes, resolveChannel } from './_lib/youtube.js';
+import { handleOptions, sendJson, requireKey, yt, isoMinutes, isoSeconds, resolveChannel } from './_lib/youtube.js';
 export default async function handler(req,res){
   const c=handleOptions(req,res); if(c===true) return;
   if(req.method!=='POST') return sendJson(res,405,{error:'Method not allowed'},c.headers);
@@ -21,7 +21,7 @@ export default async function handler(req,res){
     }
     const ids=[...new Set(rawVideos.map(v=>v.id))], details=new Map();
     for(let i=0;i<ids.length;i+=50){ const batch=ids.slice(i,i+50); const data=await yt('/videos',{part:'snippet,contentDetails',id:batch.join(',')},key); for(const v of data.items||[]) details.set(v.id,v); }
-    const videos=rawVideos.map(v=>{ const d=details.get(v.id); const sn=d?.snippet||v.fallback; return {id:v.id,title:sn.title||'',description:sn.description||'',channelId:v.channelId,channelTitle:sn.channelTitle||v.channelTitle,publishedAt:sn.publishedAt||v.publishedAt,thumbnail:sn.thumbnails?.medium?.url||sn.thumbnails?.high?.url||sn.thumbnails?.default?.url||'',durationMinutes:isoMinutes(d?.contentDetails?.duration||'PT0M'),sourceUsage:v.sourceUsage}; });
+    const videos=rawVideos.map(v=>{ const d=details.get(v.id); const sn=d?.snippet||v.fallback; const durationSeconds=isoSeconds(d?.contentDetails?.duration||''); return {id:v.id,title:sn.title||'',description:sn.description||'',channelId:v.channelId,channelTitle:sn.channelTitle||v.channelTitle,publishedAt:sn.publishedAt||v.publishedAt,thumbnail:sn.thumbnails?.medium?.url||sn.thumbnails?.high?.url||sn.thumbnails?.default?.url||'',durationSeconds,durationMinutes:durationSeconds?isoMinutes(d.contentDetails.duration):0,sourceUsage:v.sourceUsage}; }).filter(video=>video.durationSeconds>=180);
     sendJson(res,200,{ok:true,channels:resolved.map(({uploads,...r})=>r),videos,errors,checkedAt:new Date().toISOString()},c.headers);
   } catch(e){ sendJson(res,500,{error:e.message||String(e)},c.headers); }
 }
