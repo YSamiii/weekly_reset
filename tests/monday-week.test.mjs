@@ -112,3 +112,20 @@ test('old Saturday weeks migrate by exact date; keep historical workout and feed
   assert.equal(c.migrateLegacyWeekSchedule('2026-11-16'),false);
   assert.equal(c.saved,1);
 });
+
+test('manual light/challenge actions cannot override Saturday or Sunday rest', () => {
+  const c=harness();
+  c.window={};
+  const messages=[];
+  c.showToast=msg=>messages.push(msg);
+  vm.runInContext(
+    part('window.applyDailyEnergySuggestion = function(', 'function saveDailyStatus(')
+    + part('window.swapPlan = function(', 'function hydrateFeedbackFields('),
+    c
+  );
+  c.window.applyDailyEnergySuggestion('2026-11-21');
+  c.window.swapPlan('2026-11-21');
+  c.window.challengePlan('2026-11-22');
+  assert.equal(messages.length,3);
+  assert.ok(messages.every(message=>message.includes('周末')||message.includes('周六')));
+});
