@@ -608,5 +608,3 @@ html[data-theme="dark"] .mobile-nav { background: rgba(31,35,32,.95); border-col
 html[data-theme="dark"] .hero-card { background: linear-gradient(125deg,#26372f,#465b50); }
 .display-settings-panel { grid-column: 1 / -1; }
 .display-settings-helper { margin: 2px 0 0; }
-
-
