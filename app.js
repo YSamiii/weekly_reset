@@ -3996,6 +3996,9 @@ Object.assign(UI_ZH_EN, {
   '只填写已持续或反复出现的不适。这里保留具体部位，供每日排课约束和后续清除。':'List ongoing or recurring discomfort here. These areas inform daily planning and can be cleared later.',
   '今天有没有身体不适？（可多选）':'Any body discomfort today? (Select all that apply)',
   '酸紧':'Soreness / tightness','疼痛':'Pain','肿胀':'Swelling',
+  '持续性不适部位（可多选）':'Ongoing discomfort areas (select all that apply)',
+  '只选择持续或反复出现、需要长期调整训练的部位。今天临时的不适请在「今日状态 Check-in」记录。':'Select only ongoing or recurring areas that affect planning. Record temporary symptoms in Daily Status Check-in.',
+  '抓握／反复用拇指':'Gripping / repeated thumb use',
   '先选部位；不适性质和会触发它的动作只在需要时填写。旧记录会继续保留。':'Choose an area first. Add symptom and triggering action details only when needed. Older records are retained.',
   '快速记录：今天无身体不适':'Quick check-in: no discomfort today',
   '颈部':'Neck','肩部':'Shoulder','上背部':'Upper back','胸椎／中背部':'Thoracic / mid-back',
@@ -4024,6 +4027,18 @@ Object.assign(UI_ZH_EN, {
   '警示症状优先：此日期保持休息，请尽快联系医疗服务评估':'Warning symptoms take priority: rest today and contact a health service promptly',
   '记录到需要及时医学评估的警示症状；请先停止运动并联系医疗服务。此 App 不作诊断。':'Warning symptoms were reported. Stop exercising and contact a health service for prompt assessment. This app does not diagnose.'
 });
+
+// 同一套部位词表驱动周计划和每日 Check-in，避免重复且中英文不一致。
+function renderBodyAreaChoices(containerId, inputName, selected = []) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const chosen = new Set(selected);
+  const english = currentLanguage() === 'en';
+  container.innerHTML = Object.entries(DailyBodyCheckin.AREAS).map(([key, chinese]) => {
+    const display = english ? (UI_ZH_EN[chinese] || chinese) : chinese;
+    return `<label><input type="checkbox" name="${inputName}" value="${key}" ${chosen.has(key) ? 'checked' : ''} />${escapeHtml(display)}</label>`;
+  }).join('');
+}
 
 function systemLanguage() {
   const lang = String((navigator.languages && navigator.languages[0]) || navigator.language || 'en').toLowerCase();
@@ -4536,7 +4551,7 @@ window.openDailyEnergyDialog = function() {
   body.heavyCare = !!todayBody?.heavyCare;
   body.note = todayBody?.note || '';
   document.querySelectorAll('input[name="dailyEnergy"]').forEach(input => input.checked = Number(input.value) === current);
-  document.querySelectorAll('input[name="dailyBodyArea"]').forEach(input => input.checked = body.bodyAreas.includes(input.value));
+  renderBodyAreaChoices('dailyBodyAreaChoices', 'dailyBodyArea', body.bodyAreas);
   document.querySelectorAll('input[name="dailySymptom"]').forEach(input => input.checked = body.symptoms.includes(input.value));
   document.querySelectorAll('input[name="dailyTrigger"]').forEach(input => input.checked = body.triggers.includes(input.value));
   document.querySelectorAll('input[name="dailyDuration"]').forEach(input => input.checked = (body.duration || (body.persistent ? 'ongoing' : 'today')) === input.value);
@@ -4589,8 +4604,13 @@ function saveDailyStatus(value, body, date = torontoDate(), startsPeriod = false
   };
   let futureChanged = false;
   if (normalizedBody.persistent && normalizedBody.bodyAreas.length) {
-    state.assessment.persistentBodyStatus = DailyBodyCheckin.normalize({ ...normalizedBody, redFlags:[] });
-    state.assessment.pains = [...new Set([...(state.assessment.pains || []), ...normalizedBody.pains])];
+    const earlierAreas = DailyBodyCheckin.weeklyAreasForAssessment(state.assessment);
+    const earlierStatus = DailyBodyCheckin.normalize({
+      ...(state.assessment.persistentBodyStatus || {}),pains:[],bodyAreas:earlierAreas
+    });
+    const combined = DailyBodyCheckin.merge(earlierStatus, normalizedBody);
+    state.assessment.persistentBodyStatus = DailyBodyCheckin.normalize({ ...combined, pains:[], redFlags:[] });
+    state.assessment.pains = [...state.assessment.persistentBodyStatus.pains];
     state.assessment.mode = determineMode(state.assessment);
     state.assessment.updatedAt = new Date().toISOString();
     futureChanged = true;
@@ -5200,7 +5220,7 @@ function bindEvents() {
   document.getElementById('communityEffort').addEventListener('input',e=>document.getElementById('communityEffortValue').textContent=e.target.value);
   document.getElementById('dailyLoadRange').addEventListener('input',e=>document.getElementById('dailyLoadValue').textContent=e.target.value);
   document.getElementById('dailyPainSeverity').addEventListener('input',e=>document.getElementById('dailyPainSeverityValue').textContent=e.target.value);
-  document.querySelectorAll('input[name="dailyBodyArea"]').forEach(input=>input.addEventListener('change',updateDailyCheckinFields));
+  document.getElementById('dailyBodyAreaChoices').addEventListener('change',updateDailyCheckinFields);
   document.querySelectorAll('input[name="dailyRedFlag"]').forEach(input=>input.addEventListener('change',updateDailyCheckinFields));
   document.getElementById('dailyNoDiscomfort').addEventListener('click',()=>{
     const date=torontoDate();
@@ -5259,10 +5279,15 @@ function bindEvents() {
     e.preventDefault();
     const persistentAreas=[...document.querySelectorAll('input[name="persistentBodyArea"]:checked')].map(x=>x.value);
     const previousPersistent=DailyBodyCheckin.normalize(state.assessment.persistentBodyStatus || {});
+    const sharedAreas=previousPersistent.bodyAreas.some(area=>persistentAreas.includes(area));
+    // 只从唯一的具体部位选择派生旧版排课所需的 pains 键。取消勾选即真正清除限制。
     const persistentBodyStatus=persistentAreas.length
-      ? DailyBodyCheckin.normalize({...previousPersistent,bodyAreas:persistentAreas,persistent:true,duration:'ongoing',redFlags:[]})
+      ? DailyBodyCheckin.normalize({
+          ...(sharedAreas ? previousPersistent : {}),
+          pains:[],bodyAreas:persistentAreas,persistent:true,duration:'ongoing',redFlags:[]
+        })
       : null;
-    state.assessment={...state.assessment,energy:3,load:Number(document.getElementById('loadRange').value),pains:[...new Set([...document.querySelectorAll('input[name="pain"]:checked')].map(x=>x.value),...(persistentBodyStatus?.pains||[]))],persistentBodyStatus,timeAvailable:Number(document.getElementById('timeAvailable').value),desiredMode:document.getElementById('desiredMode').value,note:document.getElementById('assessmentNote').value.trim(),updatedAt:new Date().toISOString()};
+    state.assessment={...state.assessment,energy:3,load:Number(document.getElementById('loadRange').value),pains:persistentBodyStatus?.pains||[],persistentBodyStatus,timeAvailable:Number(document.getElementById('timeAvailable').value),desiredMode:document.getElementById('desiredMode').value,note:document.getElementById('assessmentNote').value.trim(),updatedAt:new Date().toISOString()};
     state.assessment.mode=determineMode(state.assessment); saveState(); document.getElementById('assessmentDialog').close(); regenerateCurrentAndNext();
     showToast('周计划基础设置已更新：持续性限制会从今天起影响后续计划，过去日期保持不变');
   });
@@ -5398,9 +5423,7 @@ function hydrateAssessmentDialog() {
   const a=state.assessment;
   document.getElementById('loadRange').value=a.load;document.getElementById('loadValue').textContent=a.load;
   document.getElementById('timeAvailable').value=String(a.timeAvailable);document.getElementById('desiredMode').value=a.desiredMode||'auto';document.getElementById('assessmentNote').value=a.note||'';
-  document.querySelectorAll('input[name="pain"]').forEach(cb=>cb.checked=a.pains.includes(cb.value));
-  const persistent = DailyBodyCheckin.normalize(a.persistentBodyStatus || {});
-  document.querySelectorAll('input[name="persistentBodyArea"]').forEach(cb=>cb.checked=persistent.bodyAreas.includes(cb.value));
+  renderBodyAreaChoices('persistentBodyAreaChoices', 'persistentBodyArea', DailyBodyCheckin.weeklyAreasForAssessment(a));
 }
 
 document.getElementById('assessmentDialog').addEventListener('close',hydrateAssessmentDialog);
