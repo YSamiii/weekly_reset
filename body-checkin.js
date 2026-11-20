@@ -50,6 +50,16 @@
       redFlags: [...new Set((Array.isArray(raw.redFlags) ? raw.redFlags : []).filter(value => VALID_FLAGS.has(value)))]
     };
   }
+  function weeklyAreasForAssessment(assessment = {}) {
+    const explicit = normalize(assessment.persistentBodyStatus || {}).bodyAreas;
+    const covered = new Set(explicit.map(area => AREA_TO_PAIN[area]).filter(Boolean));
+    // 老版六类限制仅在没有具体部位覆盖时才展开，防止 shoulder 变成 shoulder + neck。
+    const remainingLegacy = (Array.isArray(assessment.pains) ? assessment.pains : [])
+      .filter(pain => !covered.has(pain));
+    const fallback = normalize({ pains:remainingLegacy }).bodyAreas;
+    return [...new Set([...explicit, ...fallback])];
+  }
+
   function merge(...records) {
     const combined = records.map(item => normalize(item || {}));
     const latest = combined[combined.length - 1] || normalize();
@@ -86,6 +96,6 @@
   function areaSummary(body) {
     return normalize(body).bodyAreas.map(area => AREAS[area]);
   }
-  root.DailyBodyCheckin = { AREAS, SYMPTOMS, TRIGGERS, AREA_TO_PAIN, normalize, merge, requiresRest, conflictsWithVideo, areaSummary };
+  root.DailyBodyCheckin = { AREAS, SYMPTOMS, TRIGGERS, AREA_TO_PAIN, normalize, merge, weeklyAreasForAssessment, requiresRest, conflictsWithVideo, areaSummary };
 })(globalThis);
 
