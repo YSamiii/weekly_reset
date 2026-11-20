@@ -3995,6 +3995,7 @@ Object.assign(UI_ZH_EN, {
   '需要持续避开的具体部位':'Ongoing areas to limit',
   '只填写已持续或反复出现的不适。这里保留具体部位，供每日排课约束和后续清除。':'List ongoing or recurring discomfort here. These areas inform daily planning and can be cleared later.',
   '今天有没有身体不适？（可多选）':'Any body discomfort today? (Select all that apply)',
+  '酸紧':'Soreness / tightness','疼痛':'Pain','肿胀':'Swelling',
   '先选部位；不适性质和会触发它的动作只在需要时填写。旧记录会继续保留。':'Choose an area first. Add symptom and triggering action details only when needed. Older records are retained.',
   '快速记录：今天无身体不适':'Quick check-in: no discomfort today',
   '颈部':'Neck','肩部':'Shoulder','上背部':'Upper back','胸椎／中背部':'Thoracic / mid-back',
