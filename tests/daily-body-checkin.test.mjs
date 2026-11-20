@@ -48,7 +48,11 @@ test('the check-in is wired into daily planning and the quick no-discomfort acti
   assert.match(app, /DailyBodyCheckin\.conflictsWithVideo\(video, assessment\.bodyStatus\)/);
   assert.match(app, /DailyBodyCheckin\.requiresRest\(dayAssessment\.bodyStatus\)/);
   assert.match(html, /id="dailyNoDiscomfort"/);
-  assert.match(html, /name="dailyBodyArea" value="thoracic"/);
-  assert.match(html, /name="dailyBodyArea" value="wrist"/);
+  assert.match(html, /id="dailyBodyAreaChoices"/);
+  assert.match(html, /id="persistentBodyAreaChoices"/);
+  assert.match(app, /renderBodyAreaChoices\('dailyBodyAreaChoices', 'dailyBodyArea'/);
+  assert.match(app, /renderBodyAreaChoices\('persistentBodyAreaChoices', 'persistentBodyArea'/);
+  assert.equal(body.AREAS.thoracic, '胸椎／中背部');
+  assert.equal(body.AREAS.wrist, '手腕');
 });
 

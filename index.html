@@ -13,7 +13,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon-180.png" />
   <link rel="stylesheet" href="styles.css" />
-  <title>Weekly Reset 3.8.3</title>
+  <title>Weekly Reset 3.8.4</title>
 </head>
 <body>
   <div class="app-shell">
@@ -21,7 +21,7 @@
       <div class="brand">
         <div class="brand-mark">WR</div>
         <div>
-          <h1>Weekly Reset <span class="brand-version">3.8.3</span></h1>
+          <h1>Weekly Reset <span class="brand-version">3.8.4</span></h1>
           <p>恢复优先 · 智能排课</p>
         </div>
       </div>
@@ -36,7 +36,7 @@
       </nav>
 
       <div class="sidebar-card">
-        <p class="eyebrow">Weekly Reset 3.8.3</p>
+        <p class="eyebrow">Weekly Reset 3.8.4</p>
         <strong>恢复状态优先</strong>
         <p>计划服务于身体状态，而不是反过来。</p>
       </div>
@@ -336,37 +336,10 @@
           <select id="desiredMode"><option value="auto">由状态自动判断</option><option value="recovery">偏恢复</option><option value="stable">正常训练</option><option value="progress">适度进阶</option></select>
         </label>
       </div>
-      <fieldset>
-        <legend>持续性／已知不适（可多选，会影响整周）</legend>
-        <div class="chip-checks">
-          <label><input type="checkbox" name="pain" value="foot" />足弓/前脚掌</label>
-          <label><input type="checkbox" name="pain" value="knee" />膝盖</label>
-          <label><input type="checkbox" name="pain" value="back" />下背</label>
-          <label><input type="checkbox" name="pain" value="shoulder" />肩颈</label>
-          <label><input type="checkbox" name="pain" value="hip" />髋屈肌</label>
-          <label><input type="checkbox" name="pain" value="core" />腹部压力感</label>
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>需要持续避开的具体部位</legend>
-        <p class="helper">只填写已持续或反复出现的不适。这里保留具体部位，供每日排课约束和后续清除。</p>
-        <div class="chip-checks">
-          <label><input type="checkbox" name="persistentBodyArea" value="neck" />颈部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="shoulder" />肩部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="upperBack" />上背部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="thoracic" />胸椎／中背部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="lowBack" />下背部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="elbow" />肘部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="forearm" />前臂</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="wrist" />手腕</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="thumb" />拇指</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="hand" />手部／手指</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="hip" />髋部</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="knee" />膝盖</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="ankle" />脚踝</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="foot" />足弓／前脚掌</label>
-          <label><input type="checkbox" name="persistentBodyArea" value="abdomen" />腹部／腹压</label>
-        </div>
+      <fieldset class="body-area-fieldset" id="persistentBodyFieldset">
+        <legend>持续性不适部位（可多选）</legend>
+        <p class="helper">只选择持续或反复出现、需要长期调整训练的部位。今天临时的不适请在「今日状态 Check-in」记录。</p>
+        <div id="persistentBodyAreaChoices" class="chip-checks body-area-choices"></div>
       </fieldset>
       <label class="field-label">补充说明
         <textarea id="assessmentNote" rows="3" placeholder="例如：已知本周会持续的旧伤或医生建议限制。"></textarea>
@@ -392,23 +365,7 @@
       <fieldset class="body-area-fieldset">
         <legend>今天有没有身体不适？（可多选）</legend>
         <p class="helper">先选部位；不适性质和会触发它的动作只在需要时填写。旧记录会继续保留。</p>
-        <div class="chip-checks body-area-choices">
-          <label><input type="checkbox" name="dailyBodyArea" value="neck" />颈部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="shoulder" />肩部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="upperBack" />上背部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="thoracic" />胸椎／中背部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="lowBack" />下背部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="elbow" />肘部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="forearm" />前臂</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="wrist" />手腕</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="thumb" />拇指</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="hand" />手部／手指</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="hip" />髋部</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="knee" />膝盖</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="ankle" />脚踝</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="foot" />足弓／前脚掌</label>
-          <label><input type="checkbox" name="dailyBodyArea" value="abdomen" />腹部／腹压</label>
-        </div>
+        <div id="dailyBodyAreaChoices" class="chip-checks body-area-choices"></div>
         <button id="dailyNoDiscomfort" class="quiet-action" type="button">快速记录：今天无身体不适</button>
       </fieldset>
       <div id="dailySymptomDetails" class="daily-symptom-details hidden">
@@ -664,8 +621,8 @@
   </dialog>
 
   <div id="toast" class="toast" role="status"></div>
-  <script src="body-checkin.js"></script>
-  <script src="app.js"></script>
+  <script src="body-checkin.js?v=3.8.4"></script>
+  <script src="app.js?v=3.8.4"></script>
 </body>
 </html>
 
