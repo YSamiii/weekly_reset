@@ -556,6 +556,17 @@ body { background: radial-gradient(circle at 80% 0%, rgba(225,233,226,.65), tran
 .daily-energy-options strong{font-size:1.35rem}
 .daily-energy-options small{font-size:.78rem;opacity:.72}
 .daily-energy-options input:checked+span{border-color:#355f4f;box-shadow:0 0 0 2px rgba(53,95,79,.12);background:#edf3ef}
+.body-area-choices{margin-top:10px}
+.quiet-action{margin-top:10px;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface,#fff);color:var(--ink);font:inherit;font-size:.88rem;font-weight:650;cursor:pointer}
+.quiet-action:hover,.quiet-action:focus-visible{border-color:var(--accent);outline:2px solid color-mix(in srgb,var(--accent) 20%,transparent)}
+.daily-symptom-details{display:grid;gap:8px;margin:6px 0 14px;padding:12px;border:1px solid var(--line);border-radius:16px;background:var(--surface-soft,#f8f8f5)}
+.daily-symptom-details[hidden]{display:none}
+.daily-symptom-details .field-label{margin:4px 0}
+.daily-red-flag-check{margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:14px}
+.daily-red-flag-check summary{cursor:pointer;font-size:.9rem;font-weight:650}
+.daily-red-flag-check .chip-checks{margin-top:12px}
+.daily-safety-notice{margin:12px 0 0;padding:12px;border-radius:12px;background:#fff1e8;color:#6d2b10;font-size:.9rem;line-height:1.5}
+html[data-theme="dark"] .daily-safety-notice{background:#442b23;color:#ffd8c6}
 @media(max-width:620px){.daily-energy-options{gap:5px}.daily-energy-options span{min-height:68px;border-radius:12px}.daily-energy-options small{font-size:.7rem}}
 
 
@@ -597,3 +608,4 @@ html[data-theme="dark"] .mobile-nav { background: rgba(31,35,32,.95); border-col
 html[data-theme="dark"] .hero-card { background: linear-gradient(125deg,#26372f,#465b50); }
 .display-settings-panel { grid-column: 1 / -1; }
 .display-settings-helper { margin: 2px 0 0; }
+
