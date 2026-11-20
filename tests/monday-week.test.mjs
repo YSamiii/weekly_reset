@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const checkinSource = fs.readFileSync(new URL('../body-checkin.js', import.meta.url), 'utf8');
 function part(from, until) {
   const begin = source.indexOf(from);
   const end = source.indexOf(until, begin + from.length);
@@ -15,7 +16,8 @@ function harness() {
   const ctx = {
     TZ:'America/Toronto',
     currentLocale:()=> 'en-CA',
-    state:{ assessment:{mode:'stable'}, plansByWeek:{}, planMetaByWeek:{}, weekPreferencesByStart:{}, weekScheduleStartDay:'monday', plan:[], feedback:[] },
+    state:{ assessment:{mode:'stable'}, dailyEnergyByDate:{}, dailyBodyByDate:{}, plansByWeek:{}, planMetaByWeek:{}, weekPreferencesByStart:{}, weekScheduleStartDay:'monday', plan:[], feedback:[] },
+    DailyBodyCheckin:null, window:{},
     saveState:()=>{ ctx.saved += 1; }, saved:0, selectedWeekStart:'2026-11-16',
     determineMode:()=> 'stable',
     approvedPlanVideos:()=>[],
@@ -30,8 +32,10 @@ function harness() {
     })
   };
   vm.createContext(ctx);
+  vm.runInContext(checkinSource, ctx);
   vm.runInContext(
     part('function torontoDate(', 'function menstrualEndDate(')
+    + part('function dailyEnergyForDate(', 'function dailyEnergyLabel(')
     + part('const dayTemplates = [', 'function daysBetweenIso(')
     + part('function buildWeeklyPlan(', 'function markPlanLocked(')
     + part('function migrateLegacyWeekSchedule(', 'function repairRetiredChannelSlots('),
@@ -129,3 +133,5 @@ test('manual light/challenge actions cannot override Saturday or Sunday rest', (
   assert.equal(messages.length,3);
   assert.ok(messages.every(message=>message.includes('周末')||message.includes('周六')));
 });
+
+

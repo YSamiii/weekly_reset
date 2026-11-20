@@ -3173,13 +3173,13 @@ function dailyEnergyForDate(date = torontoDate()) {
 function dailyBodyForDate(date = torontoDate()) {
   const raw = state.dailyBodyByDate?.[date];
   if (!raw || typeof raw !== 'object') return null;
+  const normalized = DailyBodyCheckin.normalize(raw);
   return {
-    pains: Array.isArray(raw.pains) ? raw.pains : [],
+    ...normalized,
     load: Math.min(5, Math.max(1, Number(raw.load || 3))),
     recoveryState: ['normal','stiff','tired','recovery'].includes(raw.recoveryState) ? raw.recoveryState : 'normal',
     poorSleep: !!raw.poorSleep,
     heavyCare: !!raw.heavyCare,
-    persistent: !!raw.persistent,
     note: String(raw.note || '')
   };
 }
@@ -3187,17 +3187,21 @@ function effectiveAssessmentForDate(date = torontoDate()) {
   const dailyEnergy = dailyEnergyForDate(date);
   const dailyBody = dailyBodyForDate(date);
   const weeklyPains = Array.isArray(state.assessment.pains) ? state.assessment.pains : [];
-  const dailyPains = dailyBody?.pains || [];
+  const persistentBody = state.assessment.persistentBodyStatus || {};
+  const bodyStatus = DailyBodyCheckin.merge(persistentBody, dailyBody || {});
+  const dailyPains = bodyStatus.pains || [];
   const base = {
     ...state.assessment,
     energy: dailyEnergy ?? 3,
     pains: [...new Set([...weeklyPains, ...dailyPains])],
+    bodyStatus,
     load: Math.max(Number(state.assessment.load || 3), Number(dailyBody?.load || 0))
   };
   const dailyNeedsRecovery = !!dailyBody && (
     dailyBody.recoveryState === 'recovery' || dailyBody.recoveryState === 'tired' ||
-    dailyBody.poorSleep || dailyBody.heavyCare || dailyPains.length >= 2 || Number(dailyBody.load || 3) >= 4
-  );
+    dailyBody.poorSleep || dailyBody.heavyCare || dailyPains.length >= 2 || Number(dailyBody.load || 3) >= 4 ||
+    bodyStatus.severity >= 4 || bodyStatus.symptoms.some(item=>['tingling','weakness'].includes(item)) || DailyBodyCheckin.requiresRest(bodyStatus)
+  ) || bodyStatus.severity >= 4 || bodyStatus.symptoms.some(item=>['tingling','weakness'].includes(item)) || DailyBodyCheckin.requiresRest(bodyStatus);
   if (base.desiredMode && base.desiredMode !== 'auto') {
     // 每日状态只允许向安全侧降级，不绕过周级安全设置。
     if ((dailyEnergy != null && dailyEnergy <= 2) || dailyNeedsRecovery) base.mode = 'recovery';
@@ -3214,15 +3218,34 @@ function dailyBodySummary(date = torontoDate()) {
   const body = dailyBodyForDate(date);
   if (!body) return '身体状况未填写';
   const parts = [];
-  if (body.pains.length) parts.push(body.pains.map(painName).join('、'));
+  if (body.bodyAreas.length) parts.push(DailyBodyCheckin.areaSummary(body).join('、'));
   else parts.push('无明显不适');
+  if (body.symptoms.length) parts.push(body.symptoms.map(item => DailyBodyCheckin.SYMPTOMS[item]).join('、') + ' ' + body.severity + '/5');
   if (body.poorSleep) parts.push('睡眠不足');
   if (body.heavyCare) parts.push('带娃负荷高');
   if (body.recoveryState === 'stiff') parts.push('有点酸紧');
   if (body.recoveryState === 'tired') parts.push('明显疲劳');
   if (body.recoveryState === 'recovery') parts.push('恢复优先');
-  if (body.persistent && body.pains.length) parts.push('持续性');
+  if (body.persistent && body.bodyAreas.length) parts.push('持续性');
+  if (DailyBodyCheckin.requiresRest(body)) parts.push('已暂停训练并提示医学评估');
   return parts.join(' · ');
+}
+
+function updateDailyCheckinFields() {
+  const areas = [...document.querySelectorAll('input[name="dailyBodyArea"]:checked')];
+  const details = document.getElementById('dailySymptomDetails');
+  if (details) details.classList.toggle('hidden', !areas.length);
+  if (!areas.length) {
+    document.querySelectorAll('input[name="dailySymptom"], input[name="dailyTrigger"]').forEach(input => input.checked = false);
+    document.querySelectorAll('input[name="dailyDuration"]').forEach(input => input.checked = input.value === 'today');
+    const condition = document.getElementById('dailyKnownCondition');
+    if (condition) condition.value = 'none';
+  }
+  const flags = [...document.querySelectorAll('input[name="dailyRedFlag"]:checked')];
+  const notice = document.getElementById('dailySafetyNotice');
+  if (notice) notice.classList.toggle('hidden', !flags.length);
+  const safetyDetails = document.querySelector('.daily-red-flag-check');
+  if (flags.length && safetyDetails) safetyDetails.open = true;
 }
 
 
@@ -3350,6 +3373,7 @@ function personalEffortScoreAdjustment(video, assessment = {}, planContext = {})
 
 function videoScore(video, template, mode, usedIds, assessment, planContext = {}) {
   let score = 0;
+  if (assessment.bodyStatus && DailyBodyCheckin.conflictsWithVideo(video, assessment.bodyStatus)) return -Infinity;
   const period = planContext.period || { active:false };
   if (videoPreference(video) === 'favorite') score += 24;
   if (usedIds.has(video.id)) score -= 100;
@@ -3392,6 +3416,8 @@ function videoScore(video, template, mode, usedIds, assessment, planContext = {}
 
 function isVideoEligibleForAssessment(video, assessment, planContext = {}) {
   if (videoPreference(video) === 'dislike') return false;
+  if (assessment.bodyStatus && DailyBodyCheckin.requiresRest(assessment.bodyStatus)) return false;
+  if (assessment.bodyStatus && DailyBodyCheckin.conflictsWithVideo(video, assessment.bodyStatus)) return false;
   // 可用运动时间是硬限制：例如 15 分钟设置下，任何超过 20 分钟的视频都不能进入自动排课候选。
   if (!isVideoWithinTimeLimit(video, assessment)) return false;
   const period = planContext.period || { active:false };
@@ -3479,6 +3505,13 @@ function buildWeeklyPlan(weekStart = startOfPlanWeek(), options = {}) {
       };
     }
     if (isWeekendRestDay(date)) return weekendRestPlanItem(date, baseTemplate);
+    const dayAssessment = effectiveAssessmentForDate(date);
+    if (DailyBodyCheckin.requiresRest(dayAssessment.bodyStatus)) return {
+      date, day:baseTemplate.day, category:'建议暂停训练',
+      videoId:null, videoSnapshot:null, periodDay:0, safetyRest:true,
+      rationale:'记录到需要及时医学评估的警示症状；请先停止运动并联系医疗服务。此 App 不作诊断。',
+      generatedAt:new Date().toISOString()
+    };
     if (preserveExistingDates && existingByDate.has(date)) {
       const existing = existingByDate.get(date);
       return { ...existing, day:baseTemplate.day };
@@ -3486,7 +3519,7 @@ function buildWeeklyPlan(weekStart = startOfPlanWeek(), options = {}) {
     const period = menstrualContextForDate(date);
     const template = menstrualTemplateForDay(baseTemplate, period);
     const planContext = { date, period, weekStart, rotationStats };
-    const chosen = chooseUniqueVideo(approved, template, used, assessment, index, planContext);
+    const chosen = chooseUniqueVideo(approved, template, used, dayAssessment, index, planContext);
     if (chosen) used.add(chosen.id);
     return {
       date, day: baseTemplate.day, category: template.label,
@@ -3497,7 +3530,7 @@ function buildWeeklyPlan(weekStart = startOfPlanWeek(), options = {}) {
         url: chosen.url, thumbnail: chosen.thumbnail
       } : null,
       periodDay: period.active ? period.day : 0,
-      rationale: buildRationale(template, chosen, assessment, index, planContext),
+      rationale: buildRationale(template, chosen, dayAssessment, index, planContext),
       generatedAt: new Date().toISOString()
     };
   });
@@ -3957,6 +3990,40 @@ const UI_ZH_EN = {
   '手动录入':'Manual entry','添加训练视频':'Add training video','YouTube 链接':'YouTube link','标题':'Title','请选择 YouTuber':'Select YouTuber','自定义频道':'Custom channel','时长（分钟）':'Duration (minutes)','运动类型':'Exercise type','体位':'Position','腹压风险':'Abdominal-pressure risk','低':'Low','中':'Medium','高':'High','包含腹肌／核心训练':'Contains direct ab/core work','包含臀桥、肩桥或骨盆抬高动作':'Contains bridge / pelvic elevation','确认生理期可用':'Confirmed period-safe','加入视频库':'Add to library','视频库维护':'Video library maintenance','搜索并修改视频':'Search & edit video','重新搜索 YouTube':'Search YouTube again','在 App 内搜索':'Search in app','打开 YouTube 搜索':'Open YouTube search','单个 YouTube 视频链接':'Individual YouTube video URL','频道':'Channel','建议阶段':'Suggested phase','恢复期':'Recovery','稳定期':'Stable','进阶期':'Progression','包含大量传统卷腹':'Contains many traditional crunches','适合腹直肌分离恢复':'Diastasis-friendly','仅作为高强度备用':'High-intensity backup only','保存修改':'Save changes','人工审核':'Manual review','审核视频':'Review video','审核备注':'Review notes','不纳入':'Exclude','批准进入视频库':'Approve to library','iPad 安装':'iPad install','添加到主屏幕':'Add to Home Screen','知道了':'Got it'
 };
 
+Object.assign(UI_ZH_EN, {
+  '持续性／已知不适（可多选，会影响整周）':'Persistent / known discomfort (affects the week)',
+  '需要持续避开的具体部位':'Ongoing areas to limit',
+  '只填写已持续或反复出现的不适。这里保留具体部位，供每日排课约束和后续清除。':'List ongoing or recurring discomfort here. These areas inform daily planning and can be cleared later.',
+  '今天有没有身体不适？（可多选）':'Any body discomfort today? (Select all that apply)',
+  '先选部位；不适性质和会触发它的动作只在需要时填写。旧记录会继续保留。':'Choose an area first. Add symptom and triggering action details only when needed. Older records are retained.',
+  '快速记录：今天无身体不适':'Quick check-in: no discomfort today',
+  '颈部':'Neck','肩部':'Shoulder','上背部':'Upper back','胸椎／中背部':'Thoracic / mid-back',
+  '下背部':'Lower back','肘部':'Elbow','前臂':'Forearm','手腕':'Wrist','拇指':'Thumb',
+  '手部／手指':'Hand / fingers','髋部':'Hip','脚踝':'Ankle','足弓／前脚掌':'Arch / forefoot',
+  '腹部／腹压':'Abdomen / abdominal pressure','不适表现（可多选）':'How it feels (select all that apply)',
+  '刺痛／灼痛':'Sharp / burning pain','刺麻／麻木':'Tingling / numbness','无力':'Weakness',
+  '活动受限':'Limited movement','整体不适程度':'Overall discomfort','什么动作会诱发或加重？（可选）':'Which actions trigger or worsen it? (optional)',
+  '手掌撑地／手腕负重':'Bearing weight through the hands / wrists','转体／旋转':'Twisting / rotation',
+  '后弯／深度伸展':'Backbend / deep extension','举手过头':'Reaching overhead',
+  '抓握／反复用拇指':'Gripping / repeated thumb use','站立／行走':'Standing / walking',
+  '弯腰／前屈':'Bending forward','提举／抱物':'Lifting / carrying',
+  '持续情况':'Duration','只影响今天':'Today only','持续或反复，影响后续计划':'Ongoing or recurring; affects future plans',
+  '相关肌腱／腱鞘情况':'Related tendon / tendon sheath information',
+  '没有已知诊断':'No known diagnosis','不确定':'Unsure',
+  '怀疑肌腱／腱鞘问题（尚未诊断）':'Possible tendon / tendon sheath issue (not diagnosed)',
+  '专业人员已诊断肌腱／腱鞘问题':'Diagnosed by a health professional',
+  '其他专业诊断':'Other professional diagnosis',
+  '此项只记录你提供的情况；App 不会诊断腱鞘炎。排课会依据部位、症状和诱发动作。':'This only records what you report; the app does not diagnose tendonitis. Planning uses the area, symptoms, and triggers.',
+  '检查需要及时医学评估的警示症状':'Check for symptoms that need prompt medical assessment',
+  '胸痛伴呼吸困难或晕厥':'Chest pain with shortness of breath or fainting',
+  '突然或进行性加重的无力／麻木':'Sudden or worsening weakness / numbness',
+  '背痛伴会阴麻木或新发大小便控制困难':'Back pain with saddle-area numbness or new bladder / bowel control problems',
+  '这类情况需要尽快医学评估。请先停止训练；胸痛伴呼吸困难或晕厥、或症状突然严重时，请立即联系当地急救服务。此 App 不作诊断。':'These symptoms need prompt medical assessment. Stop exercising. For chest pain with shortness of breath or fainting, or sudden severe symptoms, contact local emergency services. This app does not diagnose.',
+  '已暂停训练并提示医学评估':'Training paused; medical assessment advised',
+  '警示症状优先：此日期保持休息，请尽快联系医疗服务评估':'Warning symptoms take priority: rest today and contact a health service promptly',
+  '记录到需要及时医学评估的警示症状；请先停止运动并联系医疗服务。此 App 不作诊断。':'Warning symptoms were reported. Stop exercising and contact a health service for prompt assessment. This app does not diagnose.'
+});
+
 function systemLanguage() {
   const lang = String((navigator.languages && navigator.languages[0]) || navigator.language || 'en').toLowerCase();
   return lang.startsWith('zh') ? 'zh' : 'en';
@@ -4132,7 +4199,7 @@ function renderHome() {
   `;
 }
 function summaryCard(label, value, small='') { return `<div class="summary-card"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong>${small?`<small>${escapeHtml(small)}</small>`:''}</div>`; }
-function painName(p) { return ({foot:'足弓/前脚掌',knee:'膝盖',back:'下背',shoulder:'肩颈',hip:'髋屈肌',core:'腹部压力'})[p] || p; }
+function painName(p) { return ({foot:'足弓/前脚掌',knee:'膝盖',back:'下背',shoulder:'肩颈',hip:'髋屈肌',core:'腹部压力',wrist:'手腕／手部',neck:'颈部',upperBack:'上背部',thoracic:'胸椎／中背部',lowBack:'下背部',elbow:'肘部',forearm:'前臂',thumb:'拇指',hand:'手部／手指',ankle:'脚踝',abdomen:'腹部／腹压'})[p] || p; }
 
 function renderWeeklyChannelFilter() {
   const excluded = excludedChannelSet(selectedWeekStart);
@@ -4459,17 +4526,32 @@ window.openChannelSearch = function(index) {
 window.openDailyEnergyDialog = function() {
   const today = torontoDate();
   const current = dailyEnergyForDate(today) ?? 3;
-  const body = dailyBodyForDate(today) || { pains:[], load:3, recoveryState:'normal', poorSleep:false, heavyCare:false, persistent:false, note:'' };
+  const todayBody = dailyBodyForDate(today);
+  const ongoingBody = DailyBodyCheckin.normalize(state.assessment.persistentBodyStatus || {});
+  const body = DailyBodyCheckin.merge(ongoingBody, todayBody || { pains:[], bodyAreas:[], symptoms:[], severity:2, triggers:[], redFlags:[], load:3, recoveryState:'normal', poorSleep:false, heavyCare:false, persistent:false, note:'' });
+  body.load = todayBody?.load || 3;
+  body.recoveryState = todayBody?.recoveryState || 'normal';
+  body.poorSleep = !!todayBody?.poorSleep;
+  body.heavyCare = !!todayBody?.heavyCare;
+  body.note = todayBody?.note || '';
   document.querySelectorAll('input[name="dailyEnergy"]').forEach(input => input.checked = Number(input.value) === current);
-  document.querySelectorAll('input[name="dailyPain"]').forEach(input => input.checked = body.pains.includes(input.value));
+  document.querySelectorAll('input[name="dailyBodyArea"]').forEach(input => input.checked = body.bodyAreas.includes(input.value));
+  document.querySelectorAll('input[name="dailySymptom"]').forEach(input => input.checked = body.symptoms.includes(input.value));
+  document.querySelectorAll('input[name="dailyTrigger"]').forEach(input => input.checked = body.triggers.includes(input.value));
+  document.querySelectorAll('input[name="dailyDuration"]').forEach(input => input.checked = (body.duration || (body.persistent ? 'ongoing' : 'today')) === input.value);
+  document.getElementById('dailyPainSeverity').value = String(body.severity || 2);
+  document.getElementById('dailyPainSeverityValue').textContent = String(body.severity || 2);
+  document.getElementById('dailyKnownCondition').value = body.knownCondition || 'none';
+  document.querySelectorAll('input[name="dailyRedFlag"]').forEach(input => input.checked = body.redFlags.includes(input.value));
   document.getElementById('dailyLoadRange').value = body.load;
   document.getElementById('dailyLoadValue').textContent = body.load;
   document.getElementById('dailyRecoveryState').value = body.recoveryState;
   document.getElementById('dailyPoorSleep').checked = body.poorSleep;
   document.getElementById('dailyHeavyCare').checked = body.heavyCare;
-  document.getElementById('dailyPersistentPain').checked = body.persistent;
   document.getElementById('dailyPeriodStart').checked = false;
   document.getElementById('dailyStatusNote').value = body.note;
+  document.querySelector('.daily-red-flag-check').open = body.redFlags.length > 0;
+  updateDailyCheckinFields();
   const dateLabel = document.getElementById('dailyEnergyDateLabel');
   if (dateLabel) dateLabel.textContent = today;
   document.getElementById('dailyEnergyDialog').showModal();
@@ -4481,7 +4563,8 @@ window.applyDailyEnergySuggestion = function(date = torontoDate()) {
   const body = dailyBodyForDate(date);
   if (energy == null || !body) { showToast('请先完成今日状态 Check-in'); return; }
   const effective = effectiveAssessmentForDate(date);
-  const hasDailyRisk = body.pains.length || body.poorSleep || body.heavyCare || body.recoveryState !== 'normal' || Number(body.load || 3) >= 4;
+  if (DailyBodyCheckin.requiresRest(effective.bodyStatus)) { showToast('已暂停训练建议；请先联系医疗服务评估这些症状'); return; }
+  const hasDailyRisk = body.bodyAreas.length || body.symptoms.length || body.pains.length || body.poorSleep || body.heavyCare || body.recoveryState !== 'normal' || Number(body.load || 3) >= 4;
   if (energy <= 2 || effective.mode === 'recovery' || hasDailyRisk) return window.swapPlan(date);
   if (energy >= 4) return window.challengePlan(date);
   showToast('今日状态适合按原计划训练');
@@ -4489,22 +4572,24 @@ window.applyDailyEnergySuggestion = function(date = torontoDate()) {
 
 function saveDailyStatus(value, body, date = torontoDate(), startsPeriod = false) {
   const energy = Math.min(5, Math.max(1, Number(value || 3)));
+  const normalizedBody = DailyBodyCheckin.normalize(body);
   if (!state.dailyEnergyByDate || typeof state.dailyEnergyByDate !== 'object') state.dailyEnergyByDate = {};
   if (!state.dailyBodyByDate || typeof state.dailyBodyByDate !== 'object') state.dailyBodyByDate = {};
   state.dailyEnergyByDate[date] = energy;
   state.dailyBodyByDate[date] = {
-    pains: Array.isArray(body.pains) ? body.pains : [],
+    ...normalizedBody,
     load: Math.min(5, Math.max(1, Number(body.load || 3))),
     recoveryState: body.recoveryState || 'normal',
     poorSleep: !!body.poorSleep,
     heavyCare: !!body.heavyCare,
-    persistent: !!body.persistent,
+    persistent: normalizedBody.persistent,
     note: String(body.note || ''),
     updatedAt: new Date().toISOString()
   };
   let futureChanged = false;
-  if (body.persistent && body.pains?.length) {
-    state.assessment.pains = [...new Set([...(state.assessment.pains || []), ...body.pains])];
+  if (normalizedBody.persistent && normalizedBody.bodyAreas.length) {
+    state.assessment.persistentBodyStatus = DailyBodyCheckin.normalize({ ...normalizedBody, redFlags:[] });
+    state.assessment.pains = [...new Set([...(state.assessment.pains || []), ...normalizedBody.pains])];
     state.assessment.mode = determineMode(state.assessment);
     state.assessment.updatedAt = new Date().toISOString();
     futureChanged = true;
@@ -4514,13 +4599,21 @@ function saveDailyStatus(value, body, date = torontoDate(), startsPeriod = false
     futureChanged = true;
   }
   saveState();
-  if (futureChanged) regenerateCurrentAndNext();
+  if (futureChanged || (planForWeek(weekStartForDate(date)).some(item=>item.date===date && item.safetyRest) && !DailyBodyCheckin.requiresRest(normalizedBody))) regenerateCurrentAndNext();
+  else if (DailyBodyCheckin.requiresRest(normalizedBody)) {
+    const weekStart = weekStartForDate(date);
+    if (weekRelation(weekStart) !== 'past') {
+      setPlanForWeek(weekStart, buildWeeklyPlan(weekStart, { preserveBeforeDate:date, existingPlan:planForWeek(weekStart) }));
+      markPlanLocked(weekStart, 'medical-safety-hold');
+    }
+    saveState(); renderAll();
+  }
   else renderAll();
   const effective = effectiveAssessmentForDate(date);
   if (isWeekendRestDay(date)) showToast('今日状态已保存；周末仍为固定休息日');
   else if (startsPeriod) showToast('已记录今天开始生理期：从今天起按生理期规则重排，过去日期不变');
-  else if (body.persistent && body.pains?.length) showToast('已记录持续性不适：从今天起影响后续计划，过去日期不变');
-  else if (energy <= 2 || effective.mode === 'recovery' || body.pains?.length || body.poorSleep || body.heavyCare) showToast('今日状态已保存：建议今天换轻一点；不会改动明天及之后的计划');
+  else if (normalizedBody.persistent && normalizedBody.bodyAreas.length) showToast('已记录持续性不适：从今天起影响后续计划，过去日期不变');
+  else if (energy <= 2 || effective.mode === 'recovery' || normalizedBody.bodyAreas.length || normalizedBody.poorSleep || normalizedBody.heavyCare) showToast('今日状态已保存：建议今天换轻一点；不会改动明天及之后的计划');
   else if (energy >= 4) showToast('今日状态已保存：状态不错，可选择“挑战一点”');
   else showToast('今日状态已保存：建议按原计划训练');
 }
@@ -4552,6 +4645,7 @@ window.swapPlan = function(date) {
   const usedOnOtherDays = new Set(weekPlan.filter(planItem => planItem.date !== date && planItem.videoId).map(planItem => planItem.videoId));
   const usedInPairedWeek = crossWeekBlockedVideoIds(weekStart);
   const effectiveAssessment = effectiveAssessmentForDate(date);
+  if (DailyBodyCheckin.requiresRest(effectiveAssessment.bodyStatus)) { showToast('警示症状优先：此日期保持休息，请尽快联系医疗服务评估'); return; }
   const approved = approvedPlanVideos(weekStart)
     .filter(video => video.id !== item.videoId && !usedOnOtherDays.has(video.id) && !usedInPairedWeek.has(video.id))
     .filter(video => isVideoEligibleForAssessment(video, effectiveAssessment, planContext));
@@ -4590,7 +4684,8 @@ window.challengePlan = function(date) {
   const current = getVideo(item.videoId);
   const effectiveAssessment = effectiveAssessmentForDate(date);
   const dailyBody = dailyBodyForDate(date);
-  const dailyRisk = !!dailyBody && (dailyBody.pains.length || dailyBody.poorSleep || dailyBody.heavyCare || dailyBody.recoveryState !== 'normal' || Number(dailyBody.load || 3) >= 4);
+  if (DailyBodyCheckin.requiresRest(effectiveAssessment.bodyStatus)) { showToast('警示症状优先：此日期保持休息，请尽快联系医疗服务评估'); return; }
+  const dailyRisk = !!dailyBody && (dailyBody.bodyAreas.length || dailyBody.symptoms.length || dailyBody.pains.length || dailyBody.poorSleep || dailyBody.heavyCare || dailyBody.recoveryState !== 'normal' || Number(dailyBody.load || 3) >= 4);
   if (Number(effectiveAssessment.energy || 3) < 4) { showToast('今日精力未达到 4/5；先按原计划或选择“换轻一点”'); return; }
   if (effectiveAssessment.mode === 'recovery' || dailyRisk) { showToast('今天的身体状态更适合恢复/轻量训练，不开放“挑战一点”'); return; }
   const currentEffort = current ? personalVideoEffort(current) : targetEffortForAssessment(effectiveAssessment);
@@ -5103,17 +5198,35 @@ function bindEvents() {
   document.getElementById('effortRange').addEventListener('input',e=>document.getElementById('effortValue').textContent=e.target.value);
   document.getElementById('communityEffort').addEventListener('input',e=>document.getElementById('communityEffortValue').textContent=e.target.value);
   document.getElementById('dailyLoadRange').addEventListener('input',e=>document.getElementById('dailyLoadValue').textContent=e.target.value);
+  document.getElementById('dailyPainSeverity').addEventListener('input',e=>document.getElementById('dailyPainSeverityValue').textContent=e.target.value);
+  document.querySelectorAll('input[name="dailyBodyArea"]').forEach(input=>input.addEventListener('change',updateDailyCheckinFields));
+  document.querySelectorAll('input[name="dailyRedFlag"]').forEach(input=>input.addEventListener('change',updateDailyCheckinFields));
+  document.getElementById('dailyNoDiscomfort').addEventListener('click',()=>{
+    const date=torontoDate();
+    const previous=dailyBodyForDate(date) || {load:3,recoveryState:'normal',poorSleep:false,heavyCare:false,note:''};
+    saveDailyStatus(dailyEnergyForDate(date) ?? Number(document.querySelector('input[name="dailyEnergy"]:checked')?.value || 3),{
+      ...previous,pains:[],bodyAreas:[],symptoms:[],severity:1,triggers:[],duration:'today',persistent:false,
+      knownCondition:'none',redFlags:[]
+    },date,false);
+    document.getElementById('dailyEnergyDialog').close();
+  });
   document.getElementById('saveDailyEnergyBtn').addEventListener('click',e=>{
     e.preventDefault();
     const selected = document.querySelector('input[name="dailyEnergy"]:checked');
     if (!selected) { showToast('请选择今天的精力状态'); return; }
     const body = {
-      pains:[...document.querySelectorAll('input[name="dailyPain"]:checked')].map(x=>x.value),
+      bodyAreas:[...document.querySelectorAll('input[name="dailyBodyArea"]:checked')].map(x=>x.value),
+      symptoms:[...document.querySelectorAll('input[name="dailySymptom"]:checked')].map(x=>x.value),
+      severity:Number(document.getElementById('dailyPainSeverity').value || 2),
+      triggers:[...document.querySelectorAll('input[name="dailyTrigger"]:checked')].map(x=>x.value),
+      duration:document.querySelector('input[name="dailyDuration"]:checked')?.value || 'today',
+      knownCondition:document.getElementById('dailyKnownCondition').value,
+      redFlags:[...document.querySelectorAll('input[name="dailyRedFlag"]:checked')].map(x=>x.value),
       load:Number(document.getElementById('dailyLoadRange').value || 3),
       recoveryState:document.getElementById('dailyRecoveryState').value,
       poorSleep:document.getElementById('dailyPoorSleep').checked,
       heavyCare:document.getElementById('dailyHeavyCare').checked,
-      persistent:document.getElementById('dailyPersistentPain').checked,
+      persistent:document.querySelector('input[name="dailyDuration"]:checked')?.value === 'ongoing',
       note:document.getElementById('dailyStatusNote').value.trim()
     };
     saveDailyStatus(Number(selected.value), body, torontoDate(), document.getElementById('dailyPeriodStart').checked);
@@ -5143,7 +5256,12 @@ function bindEvents() {
   });
   document.getElementById('saveAssessmentBtn').addEventListener('click',e=>{
     e.preventDefault();
-    state.assessment={energy:3,load:Number(document.getElementById('loadRange').value),pains:[...document.querySelectorAll('input[name="pain"]:checked')].map(x=>x.value),timeAvailable:Number(document.getElementById('timeAvailable').value),desiredMode:document.getElementById('desiredMode').value,note:document.getElementById('assessmentNote').value.trim(),updatedAt:new Date().toISOString()};
+    const persistentAreas=[...document.querySelectorAll('input[name="persistentBodyArea"]:checked')].map(x=>x.value);
+    const previousPersistent=DailyBodyCheckin.normalize(state.assessment.persistentBodyStatus || {});
+    const persistentBodyStatus=persistentAreas.length
+      ? DailyBodyCheckin.normalize({...previousPersistent,bodyAreas:persistentAreas,persistent:true,duration:'ongoing',redFlags:[]})
+      : null;
+    state.assessment={...state.assessment,energy:3,load:Number(document.getElementById('loadRange').value),pains:[...new Set([...document.querySelectorAll('input[name="pain"]:checked')].map(x=>x.value),...(persistentBodyStatus?.pains||[]))],persistentBodyStatus,timeAvailable:Number(document.getElementById('timeAvailable').value),desiredMode:document.getElementById('desiredMode').value,note:document.getElementById('assessmentNote').value.trim(),updatedAt:new Date().toISOString()};
     state.assessment.mode=determineMode(state.assessment); saveState(); document.getElementById('assessmentDialog').close(); regenerateCurrentAndNext();
     showToast('周计划基础设置已更新：持续性限制会从今天起影响后续计划，过去日期保持不变');
   });
@@ -5280,6 +5398,8 @@ function hydrateAssessmentDialog() {
   document.getElementById('loadRange').value=a.load;document.getElementById('loadValue').textContent=a.load;
   document.getElementById('timeAvailable').value=String(a.timeAvailable);document.getElementById('desiredMode').value=a.desiredMode||'auto';document.getElementById('assessmentNote').value=a.note||'';
   document.querySelectorAll('input[name="pain"]').forEach(cb=>cb.checked=a.pains.includes(cb.value));
+  const persistent = DailyBodyCheckin.normalize(a.persistentBodyStatus || {});
+  document.querySelectorAll('input[name="persistentBodyArea"]').forEach(cb=>cb.checked=persistent.bodyAreas.includes(cb.value));
 }
 
 document.getElementById('assessmentDialog').addEventListener('close',hydrateAssessmentDialog);
@@ -5343,3 +5463,5 @@ if (!state.settings.shareOnboardingSeen) {
 }
 setTimeout(() => clearLegacyVerificationErrors(), 300);
 setTimeout(() => maybeAutoSyncYouTube(), 1200);
+
+

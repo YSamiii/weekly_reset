@@ -1,5 +1,5 @@
-const CACHE = 'weekly-reset-3.8.2-cache-v1';
-const ASSETS = ['./','./index.html','./styles.css','./app.js','./manifest.webmanifest','./icons/apple-touch-icon-180.png','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE = 'weekly-reset-3.8.3-cache-v1';
+const ASSETS = ['./','./index.html','./styles.css','./body-checkin.js','./app.js','./manifest.webmanifest','./icons/apple-touch-icon-180.png','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -40,3 +40,5 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+
+
